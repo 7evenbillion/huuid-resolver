@@ -1,0 +1,21 @@
+# dependencies
+node_modules
+
+# env — never commit
+.env
+.env.local
+.env.*.local
+
+# next.js
+.next
+out
+
+# vercel
+.vercel
+
+# misc
+.DS_Store
+*.key
+*.pem
+*.log
+tsconfig.tsbuildinfo
