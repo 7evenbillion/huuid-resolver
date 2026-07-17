@@ -19,3 +19,5 @@ out
 *.pem
 *.log
 tsconfig.tsbuildinfo
+
+.vercel

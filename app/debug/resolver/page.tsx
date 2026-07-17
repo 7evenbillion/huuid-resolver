@@ -5,6 +5,10 @@ export const dynamic = 'force-dynamic';
 /**
  * /debug/resolver — TEMPORARY debug page (Build Rule 4: debug pages before
  * production pages). Raw data only, no styling. Remove before public launch.
+ *
+ * Audit log access outside this debug context is restricted: Root Authority
+ * via service role only, facilities see only their own records, patients can
+ * request their own access history (GET /1.0/audit/{huuid}, scoped JWT).
  */
 export default async function DebugResolverPage() {
   const supabase = getServiceClient();

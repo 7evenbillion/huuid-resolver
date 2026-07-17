@@ -7,10 +7,17 @@ export const runtime = 'nodejs';
 
 /**
  * GET /1.0/identifiers/{did} — W3C DID Resolution endpoint (HUUID method).
+ * This route is GET only. The protocol's only POST is
+ * /1.0/identifiers/{did}/break-glass, for Break-Glass access exclusively
+ * (later build stage) — see api.md.
  *
  * Rules enforced here (HUUID-RESOLVER-API-v0.1):
  * - Required headers: X-HUUID-Purpose (enum), X-HUUID-Facility, X-HUUID-Request-ID
- * - Research purpose is blocked (403) until Root Authority approval
+ * - Research purpose is blocked (403) until Root Authority approval.
+ *   Root Authority (current): HUUID Protocol Working Group. Upon successful
+ *   pilot adoption, operational control transitions to the national health
+ *   authority of the adopting country. See api.md § Governance and
+ *   docs/CORRECTIONS.md.
  * - AUDIT WRITE BEFORE RESPONSE — if the audit write fails, the resolution
  *   fails with 500 and no DID document is returned. No exceptions.
  * - Cache-Control: no-store and X-HUUID-Audit-ID on every response
@@ -218,7 +225,7 @@ export async function GET(
     return NextResponse.json(
       errorBody(
         'forbidden',
-        'Research purposeCode is blocked pending Root Authority approval.',
+        'Research purposeCode is blocked pending Root Authority (HUUID Protocol Working Group) approval.',
         requestId
       ),
       { status: 403, headers: baseHeaders(auditId) }

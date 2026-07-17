@@ -7,7 +7,9 @@ export default function Home() {
         infrastructure for Ghana and beyond.
       </p>
       <p>
-        Resolution endpoint: <code>GET /1.0/identifiers/{'{did}'}</code>
+        Resolution endpoint (GET only): <code>GET /1.0/identifiers/{'{did}'}</code>.
+        Break-Glass is the protocol&apos;s only POST:{' '}
+        <code>POST /1.0/identifiers/{'{did}'}/break-glass</code>.
       </p>
       <p>
         Every resolution is audited before the response is sent. Medical data

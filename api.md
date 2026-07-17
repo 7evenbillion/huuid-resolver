@@ -8,6 +8,41 @@ built for Ghana's national healthcare identity infrastructure. The resolver retu
 
 ---
 
+## Governance and trust hierarchy
+
+| Level | Entity | Role |
+|---|---|---|
+| **L0** | **HUUID Foundation** (international neutral root) | Holds root keys. Publishes resolver software. Registers national Root Authorities. Zero patient data access. Currently: HUUID Protocol Working Group acting as Foundation. |
+| **L1** | **Root Authority** | Per-country trust anchor. Approves Research access, enrolls facilities, reviews Break-Glass events. |
+| **L2** | **Issuing nodes / facilities** | Enroll patients, hold facility keys, make resolution requests. |
+
+**Root Authority (current):** HUUID Protocol Working Group ·
+Contact: josephtdnarnor@gmail.com
+
+> Upon successful pilot adoption, operational control transitions to the
+> national health authority of the adopting country.
+
+### Consent tracks
+
+All three consent tracks are **equal**. No track is the default. Which track
+applies depends on the clinical situation:
+
+- **Track A** — patient is conscious and present
+- **Track B** — patient is incapacitated (Break-Glass)
+- **Track C** — patient is a minor or has a legal guardian
+
+### HTTP methods
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| **GET** | `/1.0/identifiers/{did}` | Resolution — the only method for standard resolution |
+| **POST** | `/1.0/identifiers/{did}/break-glass` | Break-Glass **only** (later build stage) |
+
+All other references to the resolver mean **GET**. POST is never used for
+standard resolution.
+
+---
+
 ## The Audit-First Rule (non-negotiable)
 
 Every resolution attempt — success or failure — writes **one immutable audit record
@@ -19,14 +54,21 @@ The audit log (`huuid_audit_log`) permits INSERT and SELECT for `service_role` o
 There is no UPDATE policy. There is no DELETE policy. Database triggers reject both
 operations even for roles that bypass RLS.
 
+**Audit log access:** Root Authority via service role only. Facilities see only
+their own records. Patients can request their own access history.
+Endpoint: `GET /1.0/audit/{huuid}` — requires scoped JWT *(later build stage)*.
+The audit log never contains medical data.
+
 ---
 
 ## Endpoint
 
 ### `GET /1.0/identifiers/{did}`
 
-W3C DID Resolution endpoint. **GET only** — POST is not supported (a POST resolver
-breaks Universal Resolver driver compatibility).
+W3C DID Resolution endpoint. **GET only** — POST is not supported on this route
+(a POST resolver breaks Universal Resolver driver compatibility). The only POST
+in the protocol is `POST /1.0/identifiers/{did}/break-glass`, for Break-Glass
+access exclusively *(later build stage)*.
 
 ```
 GET /1.0/identifiers/did:huuid:gh:TEST7X29ALPHAxyz001
@@ -126,7 +168,7 @@ human-readable.
 |---|---|---|---|
 | 400 | `invalidRequest` | Missing/invalid header, bad purpose enum, malformed DID, non-UUID request ID | Fix the request before retrying. |
 | 401 | `unauthorized` | *(Hours 41–60)* JWT missing/expired/invalid, `exp - iat > 300s` | Generate a fresh JWT. |
-| 403 | `forbidden` | `Research` purpose — blocked until Root Authority approval; suspended facility certificate *(later stage)* | Contact Root Authority. |
+| 403 | `forbidden` | `Research` purpose — blocked until Root Authority approval; suspended facility certificate *(later stage)* | Contact the Root Authority (HUUID Protocol Working Group — see Governance). |
 | 404 | `notFound` | HUUID does not exist. Identical response for never-existed and deleted — no enumeration signal. | Do not retry. |
 | 409 | `duplicateRequest` | *(later stage)* Request-ID reused within 24h | Generate a new UUID. |
 | 410 | `deactivated` | HUUID exists but is revoked or suspended | Patient must re-enroll at the issuing node. |

@@ -2,6 +2,11 @@
 -- HUUID Resolver — Migration 001: initial schema
 -- Tables: huuid_did_documents, huuid_audit_log
 -- huuid_audit_log is IMMUTABLE: no UPDATE, no DELETE, ever.
+--
+-- Audit log access: Root Authority via service role only. Facilities see
+-- only their own records. Patients can request their own access history
+-- (GET /1.0/audit/{huuid}, scoped JWT — later build stage). The audit log
+-- never contains medical data. See docs/CORRECTIONS.md (Correction 4).
 -- ============================================================
 
 -- ── Table 1: DID documents (pointer map — never medical data) ──
