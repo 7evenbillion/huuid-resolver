@@ -1,6 +1,6 @@
 # HUUID Resolver API
 
-**Contract:** HUUID-RESOLVER-API-v0.1 · **W3C:** DID Resolution Spec 1.0 · **Version:** 1.0.0
+**Contract:** HUUID-RESOLVER-API-v0.1 + v0.2 (JWT layer) · **W3C:** DID Resolution Spec 1.0 · **Version:** 1.0.0
 
 The resolution engine behind `did:huuid` — a W3C-registered health identity method
 built for Ghana's national healthcare identity infrastructure. The resolver returns
@@ -84,19 +84,45 @@ GET /1.0/identifiers/did:huuid:gh:TEST7X29ALPHAxyz001
 | Header | Required | Description |
 |---|---|---|
 | `X-HUUID-Purpose` | Yes | Enum: `Treatment` \| `Administrative` \| `Research` \| `Emergency`. Missing or invalid → `400`. |
-| `X-HUUID-Facility` | Yes | DID of the requesting facility, e.g. `did:huuid:gh:node-korlebu-reg`. |
-| `X-HUUID-Request-ID` | Yes | UUID v4, generated fresh per request. Recorded in the audit log. |
+| `X-HUUID-Facility` | Yes | DID of the requesting facility, e.g. `did:huuid:gh:node-korlebu-reg`. Must equal the JWT `sub` claim exactly, or `401`. |
+| `X-HUUID-Request-ID` | Yes | UUID v4, generated fresh per request. Must equal the JWT `jti` claim exactly, or `401`. Recorded in the audit log. |
 | `Accept` | Recommended | `application/did+ld+json` (server default). |
-| `Authorization` | Deferred | `Bearer {JWT}` (Ed25519, facility-signed). **Not verified in this build stage** — scheduled for Hours 41–60. |
+| `Authorization` | Yes | `Bearer {JWT}` — Ed25519 (EdDSA), signed by the facility's private key, verified against the facility's registered public key in `huuid_facilities`. See **JWT verification** below. |
+
+### JWT verification (HUUID-RESOLVER-API-v0.2)
+
+Every request's `Authorization: Bearer {JWT}` is verified before resolution
+proceeds. All of the following must hold, or the request returns `401
+unauthorized`:
+
+1. **Signature** — Ed25519 (`alg: EdDSA`), verified against the requesting
+   facility's `public_key_multibase` in `huuid_facilities`. The facility DID
+   must be registered and resolvable; an unknown facility is `401`.
+2. **`aud`** — must equal exactly `https://resolver.huuid.health`.
+3. **Replay window** — `exp - iat` must be `<= 300` seconds.
+4. **`jti` == `X-HUUID-Request-ID`** — the token's `jti` claim must match the
+   request header exactly.
+5. **`sub` == `X-HUUID-Facility`** — the token's `sub` claim must match the
+   request header exactly.
+
+Facility certificate suspension/revocation checks (`403 forbidden`) and full
+JWT `iss`/`kid` chain validation are deferred to a later build stage — see
+**Deferred to later build stages** below.
 
 ### Example request
 
 ```bash
 curl -i "https://huuid-resolver.vercel.app/1.0/identifiers/did:huuid:gh:TEST7X29ALPHAxyz001" \
+  -H "Authorization: Bearer {facility-signed Ed25519 JWT}" \
   -H "X-HUUID-Purpose: Treatment" \
-  -H "X-HUUID-Facility: did:huuid:gh:node-korlebu-reg" \
+  -H "X-HUUID-Facility: did:huuid:gh:node-test-001" \
   -H "X-HUUID-Request-ID: f47ac10b-58cc-4372-a567-0e02b2c3d479"
 ```
+
+The JWT's `jti` claim must equal the `X-HUUID-Request-ID` value above, and
+its `sub` claim must equal the `X-HUUID-Facility` value above. See
+`/debug/resolver` for a live JWT-signing/verification harness against the
+seeded test facility.
 
 ### Success response — `200 OK`
 
@@ -167,7 +193,7 @@ human-readable.
 | HTTP | `error` enum | Trigger | Client action |
 |---|---|---|---|
 | 400 | `invalidRequest` | Missing/invalid header, bad purpose enum, malformed DID, non-UUID request ID | Fix the request before retrying. |
-| 401 | `unauthorized` | *(Hours 41–60)* JWT missing/expired/invalid, `exp - iat > 300s` | Generate a fresh JWT. |
+| 401 | `unauthorized` | JWT missing/expired/invalid signature, `aud` mismatch, `exp - iat > 300s`, `jti` != `X-HUUID-Request-ID`, `sub` != `X-HUUID-Facility`, or unknown facility | Generate a fresh JWT with matching claims. |
 | 403 | `forbidden` | `Research` purpose — blocked until Root Authority approval; suspended facility certificate *(later stage)* | Contact the Root Authority (HUUID Protocol Working Group — see Governance). |
 | 404 | `notFound` | HUUID does not exist. Identical response for never-existed and deleted — no enumeration signal. | Do not retry. |
 | 409 | `duplicateRequest` | *(later stage)* Request-ID reused within 24h | Generate a new UUID. |
@@ -201,8 +227,27 @@ Unauthenticated health probe. `200` when healthy, `503` when the database is dow
 
 ### `GET /debug/resolver`
 
-Temporary raw-data debug page (Build Rule 4). Shows all DID documents, the last 10
-audit rows, and a copy-paste curl test. **Remove before public launch.**
+Temporary raw-data debug page (Build Rule 4). Shows live JWT verification
+results for four test cases (valid, expired, oversized window, `jti`
+mismatch) against the seeded test facility, the `huuid_facilities` table,
+all DID documents, the last 10 audit rows, and a copy-paste curl test.
+**Remove before public launch.**
+
+---
+
+## Facility schema (`huuid_facilities`)
+
+Facility registry used to verify Ed25519 JWT signatures. No anon or
+authenticated access — server-side (`service_role`) only.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `facility_did` | text | Unique. The facility's DID — must equal both `X-HUUID-Facility` and the JWT `sub` claim. |
+| `facility_name` | text | Human-readable name |
+| `certificate_status` | text | `active` \| `suspended` \| `revoked`. Enforcement of suspended/revoked (`403 forbidden`) is deferred to a later build stage. |
+| `public_key_multibase` | text | Multibase (`z...`, base58btc, Ed25519 multicodec `0xed01` prefix) — the facility's public key, used to verify JWT signatures. |
+| `created_at` | timestamptz | |
 
 ---
 
@@ -237,13 +282,15 @@ not acceptable.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Anon key (no table access — everything is service-role) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Server only** | Resolver DB access. Never in client code, never logged. |
 | `HUUID_RESOLVER_VERSION` | Server | Version stamped into responses and audit rows |
+| `HUUID_TEST_FACILITY_JWK` | **Server only** | Ed25519 private key (JWK JSON) for the seeded test facility. Used exclusively by `/debug/resolver` to sign demonstration JWTs. Never committed. |
 
 ---
 
 ## Deferred to later build stages
 
-- Facility JWT verification (EdDSA / Ed25519, `exp - iat ≤ 300s`, `jti` = Request-ID) — Hours 41–60
 - `409 duplicateRequest` (Request-ID replay window)
 - Rolling rate limits + `Retry-After` (Treatment/Administrative)
 - Constant-time 404 indistinguishability hardening
 - Break-Glass threshold automation (Emergency > 10/24h → certificate suspension)
+- Facility certificate suspension/revocation enforcement (`403 forbidden` for `certificate_status != active`)
+- Full JWT `iss`/`kid` chain validation beyond `sub`/`aud`/`exp`/`iat`/`jti`

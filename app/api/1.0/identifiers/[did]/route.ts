@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
 import { getServiceClient, RESOLVER_VERSION } from '@/lib/supabase-server';
+import { verifyFacilityJWT } from '@/lib/facility-jwt';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,8 +12,12 @@ export const runtime = 'nodejs';
  * /1.0/identifiers/{did}/break-glass, for Break-Glass access exclusively
  * (later build stage) — see api.md.
  *
- * Rules enforced here (HUUID-RESOLVER-API-v0.1):
+ * Rules enforced here (HUUID-RESOLVER-API-v0.1 + v0.2 JWT layer):
  * - Required headers: X-HUUID-Purpose (enum), X-HUUID-Facility, X-HUUID-Request-ID
+ * - Authorization: Bearer {JWT} — Ed25519-signed by the facility, verified
+ *   against the facility's registered public key (huuid_facilities). Checks
+ *   aud, exp-iat <= 300s, jti == X-HUUID-Request-ID, sub == X-HUUID-Facility.
+ *   Any failure returns 401 unauthorized (Hours 41-60 / HUUID-RESOLVER-API-v0.2).
  * - Research purpose is blocked (403) until Root Authority approval.
  *   Root Authority (current): HUUID Protocol Working Group. Upon successful
  *   pilot adoption, operational control transitions to the national health
@@ -22,9 +27,6 @@ export const runtime = 'nodejs';
  *   fails with 500 and no DID document is returned. No exceptions.
  * - Cache-Control: no-store and X-HUUID-Audit-ID on every response
  * - Requester IP is stored only as a SHA-256 hash, never raw
- *
- * JWT verification is intentionally out of scope for this build stage
- * (Hours 41-60 per the build plan).
  */
 
 const PURPOSE_CODES = ['Treatment', 'Administrative', 'Research', 'Emergency'] as const;
@@ -213,7 +215,66 @@ export async function GET(
     });
   }
 
-  // ── Step 2: Research purpose is blocked until Root Authority approval ──
+  // ── Step 2: verify the facility's Ed25519 JWT (HUUID-RESOLVER-API-v0.2) ──
+  let jwtFailureReason: string | null = null;
+  try {
+    const { data: facilityRow, error: facilityLookupError } = await getServiceClient()
+      .from('huuid_facilities')
+      .select('public_key_multibase')
+      .eq('facility_did', facility as string)
+      .maybeSingle();
+
+    if (facilityLookupError) throw new Error(facilityLookupError.message);
+
+    if (!facilityRow) {
+      jwtFailureReason = 'Unknown facility. Facility DID is not registered.';
+    } else {
+      const jwtResult = await verifyFacilityJWT(
+        req.headers.get('authorization'),
+        facilityRow.public_key_multibase
+      );
+      if (!jwtResult.ok) {
+        jwtFailureReason = jwtResult.reason;
+      } else if (jwtResult.claims.sub !== facility) {
+        jwtFailureReason = 'JWT subject (sub) does not match X-HUUID-Facility header.';
+      } else if (jwtResult.claims.jti !== requestIdHeader) {
+        jwtFailureReason = 'JWT jti does not match X-HUUID-Request-ID header.';
+      }
+    }
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        requestId,
+        action: 'facility_lookup_failed',
+        resource: 'huuid_facilities',
+        status: 500,
+        message: err instanceof Error ? err.message : 'unknown',
+        timestamp: new Date().toISOString(),
+      })
+    );
+    const auditId = await audit('internalError');
+    return NextResponse.json(
+      errorBody('internalError', 'Facility lookup failed.', requestId),
+      { status: 500, headers: baseHeaders(auditId) }
+    );
+  }
+
+  if (jwtFailureReason) {
+    const auditId = await audit('unauthorized');
+    if (!auditId) {
+      return NextResponse.json(
+        errorBody('internalError', 'Audit write failed. Resolution aborted.', requestId),
+        { status: 500, headers: baseHeaders(null) }
+      );
+    }
+    return NextResponse.json(errorBody('unauthorized', jwtFailureReason, requestId), {
+      status: 401,
+      headers: baseHeaders(auditId),
+    });
+  }
+
+  // ── Step 3: Research purpose is blocked until Root Authority approval ──
   if (purposeHeader === 'Research') {
     const auditId = await audit('forbidden');
     if (!auditId) {
@@ -232,7 +293,7 @@ export async function GET(
     );
   }
 
-  // ── Step 3: resolve the DID document ──
+  // ── Step 4: resolve the DID document ──
   let record: {
     did_document: Record<string, unknown>;
     status: string;
@@ -274,7 +335,7 @@ export async function GET(
       ? 'success'
       : 'deactivated';
 
-  // ── Step 4: WRITE AUDIT BEFORE RETURNING THE RESPONSE ──
+  // ── Step 5: WRITE AUDIT BEFORE RETURNING THE RESPONSE ──
   // If the audit cannot be written, the resolution must not proceed. 500.
   const auditId = await audit(outcome);
   if (!auditId) {
@@ -288,7 +349,7 @@ export async function GET(
     );
   }
 
-  // ── Step 5: respond ──
+  // ── Step 6: respond ──
   if (outcome === 'notFound') {
     return NextResponse.json(
       errorBody('notFound', 'HUUID not found in registry.', requestId),

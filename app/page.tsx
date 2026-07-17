@@ -12,6 +12,10 @@ export default function Home() {
         <code>POST /1.0/identifiers/{'{did}'}/break-glass</code>.
       </p>
       <p>
+        Every request carries a facility-signed Ed25519 JWT, verified against
+        the facility&apos;s registered public key before resolution proceeds.
+      </p>
+      <p>
         Every resolution is audited before the response is sent. Medical data
         never touches this server — pointers only.
       </p>

@@ -4,6 +4,10 @@ Production resolution engine for **`did:huuid`** — a W3C-registered health ide
 method (W3C DID Extensions PR #722) built for Ghana's national healthcare identity
 infrastructure.
 
+- **Every request carries a facility-signed Ed25519 JWT.** Verified against
+  the facility's registered public key (`huuid_facilities`) — signature,
+  `aud`, the `exp - iat <= 300s` window, `jti == X-HUUID-Request-ID`, and
+  `sub == X-HUUID-Facility` all must hold, or `401 unauthorized`.
 - **Every request is audited.** The audit write happens *before* the response is
   sent; if it fails, the resolution fails with 500.
 - **Every audit is immutable.** No UPDATE, no DELETE — enforced by RLS, GRANTs,
@@ -60,19 +64,22 @@ npm run build
 
 ## Database
 
-Migration lives in `supabase/migrations/001_initial.sql` — two tables with the
-`huuid_` prefix (shared Cedimaker Supabase project):
+Migrations live in `supabase/migrations/` — three tables with the `huuid_`
+prefix (shared Cedimaker Supabase project):
 
 - `huuid_did_documents` — DID document registry (service_role: SELECT/INSERT/UPDATE; no DELETE — deactivate only)
 - `huuid_audit_log` — immutable audit trail (service_role: SELECT/INSERT only)
+- `huuid_facilities` — facility registry for JWT verification (service_role: SELECT/INSERT/UPDATE; no DELETE)
 
-Both tables: RLS enabled, zero anon/authenticated access, explicit GRANT blocks
+All tables: RLS enabled, zero anon/authenticated access, explicit GRANT blocks
 (required post May 30 2026).
 
 ## Environment variables
 
-See [.env.example](.env.example). `SUPABASE_SERVICE_ROLE_KEY` is server-side only —
-guarded by a `server-only` import in `lib/supabase-server.ts`.
+See [.env.example](.env.example). `SUPABASE_SERVICE_ROLE_KEY` and
+`HUUID_TEST_FACILITY_JWK` are server-side only — the former guarded by a
+`server-only` import in `lib/supabase-server.ts`, the latter in
+`lib/test-facility-jwt.ts`.
 
 ## Related specifications
 
