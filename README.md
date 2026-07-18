@@ -22,8 +22,12 @@ infrastructure.
   written (the one exception to audit-first).
 - **404/410/200 response times are padded to a 150ms floor**, applied uniformly
   to blunt timing-based enumeration of whether a HUUID never existed or was
-  revoked. See [api.md](api.md) for a measured limitation of this floor under
-  the current Vercel/Supabase region split.
+  revoked. **Open issue, not resolved:** measured in production across 4
+  independent batches, the 404-vs-410 median delta ranged 27-182ms — the
+  50ms target was met in only 1 of 4 batches. Cross-region jitter between
+  Vercel (`iad1`) and Supabase (`eu-west-1`) on each DB round trip dominates
+  the floor; see [api.md](api.md) § Constant-time resolution outcomes for
+  the full measurement and remaining options.
 - **Medical data never touches this server.** DID documents are pointer maps only.
 
 ## Governance
