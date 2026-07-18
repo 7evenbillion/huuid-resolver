@@ -1,6 +1,6 @@
 # HUUID Resolver API
 
-**Contract:** HUUID-RESOLVER-API-v0.1 + v0.2 (JWT layer) · **W3C:** DID Resolution Spec 1.0 · **Version:** 1.0.0
+**Contract:** HUUID-RESOLVER-API-v0.1 + v0.2 (JWT layer) + Hours 61-80 (certificate status, duplicate detection, constant-time hardening) · **W3C:** DID Resolution Spec 1.0 · **Version:** 1.0.0
 
 The resolution engine behind `did:huuid` — a W3C-registered health identity method
 built for Ghana's national healthcare identity infrastructure. The resolver returns
@@ -85,7 +85,7 @@ GET /1.0/identifiers/did:huuid:gh:TEST7X29ALPHAxyz001
 |---|---|---|
 | `X-HUUID-Purpose` | Yes | Enum: `Treatment` \| `Administrative` \| `Research` \| `Emergency`. Missing or invalid → `400`. |
 | `X-HUUID-Facility` | Yes | DID of the requesting facility, e.g. `did:huuid:gh:node-korlebu-reg`. Must equal the JWT `sub` claim exactly, or `401`. |
-| `X-HUUID-Request-ID` | Yes | UUID v4, generated fresh per request. Must equal the JWT `jti` claim exactly, or `401`. Recorded in the audit log. |
+| `X-HUUID-Request-ID` | Yes | UUID v4, generated fresh per request. Must equal the JWT `jti` claim exactly, or `401`. Must not repeat within 24 hours, or `409`. Recorded in the audit log. |
 | `Accept` | Recommended | `application/did+ld+json` (server default). |
 | `Authorization` | Yes | `Bearer {JWT}` — Ed25519 (EdDSA), signed by the facility's private key, verified against the facility's registered public key in `huuid_facilities`. See **JWT verification** below. |
 
@@ -105,9 +105,40 @@ unauthorized`:
 5. **`sub` == `X-HUUID-Facility`** — the token's `sub` claim must match the
    request header exactly.
 
-Facility certificate suspension/revocation checks (`403 forbidden`) and full
-JWT `iss`/`kid` chain validation are deferred to a later build stage — see
-**Deferred to later build stages** below.
+Full JWT `iss`/`kid` chain validation beyond `sub`/`aud`/`exp`/`iat`/`jti` is
+deferred to a later build stage — see **Deferred to later build stages**
+below.
+
+### Certificate status enforcement (Hours 61-80)
+
+After JWT verification, the requesting facility's `certificate_status` is
+checked:
+
+| `certificate_status` | Result |
+|---|---|
+| `active` | Resolution proceeds. |
+| `suspended` | `403 forbidden` — *"Facility certificate is suspended. Contact HUUID Protocol Working Group: josephtdnarnor@gmail.com"* |
+| `revoked` | `403 forbidden` — *"Facility certificate has been revoked."* |
+
+Both outcomes write an audit record with `outcome: forbidden` before the
+response is sent.
+
+### Duplicate request detection (Hours 61-80)
+
+`X-HUUID-Request-ID` must not repeat within 24 hours (`huuid_request_log`).
+A duplicate returns `409 duplicateRequest` **before `huuid_audit_log` is
+touched at all** — no audit row is written for a rejected duplicate. This is
+the one exception to the audit-first rule, by design: a rejected replay
+never reached resolution.
+
+### Constant-time resolution outcomes (Hours 61-80)
+
+Every DID-resolution outcome — `200` success, `404` notFound, `410`
+deactivated — is padded to a minimum of 150ms of total elapsed time before
+the response is sent, applied uniformly regardless of outcome. This prevents
+timing-based enumeration of whether a HUUID exists, never existed, or was
+revoked. Earlier failure paths (400/401/403/409/500) are not padded — the
+timing concern is specifically about distinguishing DID-existence states.
 
 ### Example request
 
@@ -194,9 +225,9 @@ human-readable.
 |---|---|---|---|
 | 400 | `invalidRequest` | Missing/invalid header, bad purpose enum, malformed DID, non-UUID request ID | Fix the request before retrying. |
 | 401 | `unauthorized` | JWT missing/expired/invalid signature, `aud` mismatch, `exp - iat > 300s`, `jti` != `X-HUUID-Request-ID`, `sub` != `X-HUUID-Facility`, or unknown facility | Generate a fresh JWT with matching claims. |
-| 403 | `forbidden` | `Research` purpose — blocked until Root Authority approval; suspended facility certificate *(later stage)* | Contact the Root Authority (HUUID Protocol Working Group — see Governance). |
-| 404 | `notFound` | HUUID does not exist. Identical response for never-existed and deleted — no enumeration signal. | Do not retry. |
-| 409 | `duplicateRequest` | *(later stage)* Request-ID reused within 24h | Generate a new UUID. |
+| 403 | `forbidden` | `Research` purpose — blocked until Root Authority approval; facility certificate `suspended` or `revoked` | Contact the Root Authority (HUUID Protocol Working Group — see Governance). |
+| 404 | `notFound` | HUUID does not exist. Identical response time to `410` (150ms floor) — no enumeration signal. | Do not retry. |
+| 409 | `duplicateRequest` | `X-HUUID-Request-ID` reused within 24h. No audit row is written for this outcome. | Generate a new UUID. |
 | 410 | `deactivated` | HUUID exists but is revoked or suspended | Patient must re-enroll at the issuing node. |
 | 429 | `rateLimitExceeded` | *(later stage)* >50 unique resolutions/hour for Treatment/Administrative | Respect `Retry-After`. |
 | 500 | `internalError` | **Audit write failed — resolution aborted.** Also raised on DB lookup failure. | Retry later; the resolver refuses to resolve unaudited. |
@@ -229,9 +260,12 @@ Unauthenticated health probe. `200` when healthy, `503` when the database is dow
 
 Temporary raw-data debug page (Build Rule 4). Shows live JWT verification
 results for four test cases (valid, expired, oversized window, `jti`
-mismatch) against the seeded test facility, the `huuid_facilities` table,
-all DID documents, the last 10 audit rows, and a copy-paste curl test.
-**Remove before public launch.**
+mismatch), a live certificate-suspension test (suspends the test facility,
+confirms `403`, restores to `active`), a live duplicate-request test
+(same `X-HUUID-Request-ID` twice, confirms `409` on the second), a
+deterministic response-time-floor confirmation, the `huuid_facilities`
+table, all DID documents, the last 10 audit rows, and a copy-paste curl
+test. **Remove before public launch.**
 
 ---
 
@@ -245,9 +279,23 @@ authenticated access — server-side (`service_role`) only.
 | `id` | uuid | PK |
 | `facility_did` | text | Unique. The facility's DID — must equal both `X-HUUID-Facility` and the JWT `sub` claim. |
 | `facility_name` | text | Human-readable name |
-| `certificate_status` | text | `active` \| `suspended` \| `revoked`. Enforcement of suspended/revoked (`403 forbidden`) is deferred to a later build stage. |
+| `certificate_status` | text | `active` \| `suspended` \| `revoked`. Enforced after JWT verification — `suspended`/`revoked` return `403 forbidden`, audited. |
 | `public_key_multibase` | text | Multibase (`z...`, base58btc, Ed25519 multicodec `0xed01` prefix) — the facility's public key, used to verify JWT signatures. |
 | `created_at` | timestamptz | |
+
+---
+
+## Request log schema (`huuid_request_log`)
+
+Replay-detection log for `X-HUUID-Request-ID` (Hours 61-80). No anon or
+authenticated access — server-side (`service_role`) only. Append-only.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `request_id` | uuid | Unique. Checked for reuse within a rolling 24h window before every resolution. |
+| `facility_did` | text | The requesting facility. |
+| `logged_at` | timestamptz | |
 
 ---
 
@@ -288,9 +336,7 @@ not acceptable.
 
 ## Deferred to later build stages
 
-- `409 duplicateRequest` (Request-ID replay window)
 - Rolling rate limits + `Retry-After` (Treatment/Administrative)
-- Constant-time 404 indistinguishability hardening
 - Break-Glass threshold automation (Emergency > 10/24h → certificate suspension)
-- Facility certificate suspension/revocation enforcement (`403 forbidden` for `certificate_status != active`)
 - Full JWT `iss`/`kid` chain validation beyond `sub`/`aud`/`exp`/`iat`/`jti`
+- `huuid_request_log` retention/purge job (rows currently accumulate indefinitely)

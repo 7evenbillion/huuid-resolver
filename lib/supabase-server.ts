@@ -22,6 +22,13 @@ export function getServiceClient(): SupabaseClient {
 
   client = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    // Next.js patches global fetch and may cache GET-shaped requests (every
+    // PostgREST .select() is a GET). Security/audit-critical reads
+    // (certificate_status, request_id duplicate checks, DID document status)
+    // must never be served stale, so every request bypasses that cache.
+    global: {
+      fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+    },
   });
   return client;
 }

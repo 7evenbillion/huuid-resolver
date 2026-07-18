@@ -15,6 +15,12 @@ infrastructure.
   facilities see only their own records; patients can request their own access
   history (`GET /1.0/audit/{huuid}`, scoped JWT — later build stage). The audit
   log never contains medical data.
+- **Facility certificate status is enforced.** `suspended`/`revoked`
+  facilities get `403 forbidden`, audited.
+- **Duplicate `X-HUUID-Request-ID` within 24h is rejected with `409`** —
+  before any audit row is written (the one exception to audit-first).
+- **404/410/200 response times converge** to a 150ms floor, so timing can't
+  reveal whether a HUUID never existed or was revoked.
 - **Medical data never touches this server.** DID documents are pointer maps only.
 
 ## Governance
@@ -64,12 +70,13 @@ npm run build
 
 ## Database
 
-Migrations live in `supabase/migrations/` — three tables with the `huuid_`
+Migrations live in `supabase/migrations/` — four tables with the `huuid_`
 prefix (shared Cedimaker Supabase project):
 
 - `huuid_did_documents` — DID document registry (service_role: SELECT/INSERT/UPDATE; no DELETE — deactivate only)
 - `huuid_audit_log` — immutable audit trail (service_role: SELECT/INSERT only)
-- `huuid_facilities` — facility registry for JWT verification (service_role: SELECT/INSERT/UPDATE; no DELETE)
+- `huuid_facilities` — facility registry for JWT verification + certificate status (service_role: SELECT/INSERT/UPDATE; no DELETE)
+- `huuid_request_log` — replay-detection log for `X-HUUID-Request-ID` (service_role: SELECT/INSERT only)
 
 All tables: RLS enabled, zero anon/authenticated access, explicit GRANT blocks
 (required post May 30 2026).

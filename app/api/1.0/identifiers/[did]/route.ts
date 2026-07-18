@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash, randomUUID } from 'node:crypto';
 import { getServiceClient, RESOLVER_VERSION } from '@/lib/supabase-server';
 import { verifyFacilityJWT } from '@/lib/facility-jwt';
+import { enforceResponseTimeFloor } from '@/lib/response-time-floor';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -18,6 +19,12 @@ export const runtime = 'nodejs';
  *   against the facility's registered public key (huuid_facilities). Checks
  *   aud, exp-iat <= 300s, jti == X-HUUID-Request-ID, sub == X-HUUID-Facility.
  *   Any failure returns 401 unauthorized (Hours 41-60 / HUUID-RESOLVER-API-v0.2).
+ * - Facility certificate status (huuid_facilities.certificate_status) is
+ *   enforced after JWT verification: suspended/revoked -> 403 forbidden,
+ *   audited (Hours 61-80).
+ * - X-HUUID-Request-ID must be unique within 24 hours (huuid_request_log).
+ *   A duplicate returns 409 duplicateRequest BEFORE any audit write
+ *   (Hours 61-80).
  * - Research purpose is blocked (403) until Root Authority approval.
  *   Root Authority (current): HUUID Protocol Working Group. Upon successful
  *   pilot adoption, operational control transitions to the national health
@@ -25,6 +32,8 @@ export const runtime = 'nodejs';
  *   docs/CORRECTIONS.md.
  * - AUDIT WRITE BEFORE RESPONSE — if the audit write fails, the resolution
  *   fails with 500 and no DID document is returned. No exceptions.
+ * - Resolution outcomes (success/notFound/deactivated) are padded to a
+ *   150ms floor so 404/410/200 timings converge (Hours 61-80).
  * - Cache-Control: no-store and X-HUUID-Audit-ID on every response
  * - Requester IP is stored only as a SHA-256 hash, never raw
  */
@@ -217,10 +226,11 @@ export async function GET(
 
   // ── Step 2: verify the facility's Ed25519 JWT (HUUID-RESOLVER-API-v0.2) ──
   let jwtFailureReason: string | null = null;
+  let facilityCertificateStatus: string | null = null;
   try {
     const { data: facilityRow, error: facilityLookupError } = await getServiceClient()
       .from('huuid_facilities')
-      .select('public_key_multibase')
+      .select('public_key_multibase, certificate_status')
       .eq('facility_did', facility as string)
       .maybeSingle();
 
@@ -229,6 +239,7 @@ export async function GET(
     if (!facilityRow) {
       jwtFailureReason = 'Unknown facility. Facility DID is not registered.';
     } else {
+      facilityCertificateStatus = facilityRow.certificate_status;
       const jwtResult = await verifyFacilityJWT(
         req.headers.get('authorization'),
         facilityRow.public_key_multibase
@@ -274,7 +285,99 @@ export async function GET(
     });
   }
 
-  // ── Step 3: Research purpose is blocked until Root Authority approval ──
+  // ── Step 3: facility certificate status enforcement (Hours 61-80) ──
+  if (facilityCertificateStatus === 'suspended') {
+    const auditId = await audit('forbidden');
+    if (!auditId) {
+      return NextResponse.json(
+        errorBody('internalError', 'Audit write failed. Resolution aborted.', requestId),
+        { status: 500, headers: baseHeaders(null) }
+      );
+    }
+    return NextResponse.json(
+      errorBody(
+        'forbidden',
+        'Facility certificate is suspended. Contact HUUID Protocol Working Group: josephtdnarnor@gmail.com',
+        requestId
+      ),
+      { status: 403, headers: baseHeaders(auditId) }
+    );
+  }
+
+  if (facilityCertificateStatus === 'revoked') {
+    const auditId = await audit('forbidden');
+    if (!auditId) {
+      return NextResponse.json(
+        errorBody('internalError', 'Audit write failed. Resolution aborted.', requestId),
+        { status: 500, headers: baseHeaders(null) }
+      );
+    }
+    return NextResponse.json(
+      errorBody('forbidden', 'Facility certificate has been revoked.', requestId),
+      { status: 403, headers: baseHeaders(auditId) }
+    );
+  }
+
+  // ── Step 4: duplicate X-HUUID-Request-ID detection — must precede any
+  // audit write; a duplicate is rejected before huuid_audit_log is touched
+  // (Hours 61-80) ──
+  try {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: existingRequest, error: requestLogLookupError } = await getServiceClient()
+      .from('huuid_request_log')
+      .select('request_id')
+      .eq('request_id', requestId)
+      .gte('logged_at', twentyFourHoursAgo)
+      .maybeSingle();
+
+    if (requestLogLookupError) throw new Error(requestLogLookupError.message);
+
+    if (existingRequest) {
+      return NextResponse.json(
+        errorBody(
+          'duplicateRequest',
+          'X-HUUID-Request-ID has already been used within the last 24 hours.',
+          requestId
+        ),
+        { status: 409, headers: baseHeaders(null) }
+      );
+    }
+
+    const { error: requestLogInsertError } = await getServiceClient()
+      .from('huuid_request_log')
+      .insert({ request_id: requestId, facility_did: facility as string });
+
+    if (requestLogInsertError) {
+      // Unique violation means this request_id was already logged (e.g. a
+      // row older than 24h still present) — a duplicate, not a server fault.
+      if (requestLogInsertError.code === '23505') {
+        return NextResponse.json(
+          errorBody('duplicateRequest', 'X-HUUID-Request-ID has already been used.', requestId),
+          { status: 409, headers: baseHeaders(null) }
+        );
+      }
+      throw new Error(requestLogInsertError.message);
+    }
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        requestId,
+        action: 'request_log_failed',
+        resource: 'huuid_request_log',
+        status: 500,
+        message: err instanceof Error ? err.message : 'unknown',
+        timestamp: new Date().toISOString(),
+      })
+    );
+    const auditId = await audit('internalError');
+    return NextResponse.json(
+      errorBody('internalError', 'Request log write failed.', requestId),
+      { status: 500, headers: baseHeaders(auditId) }
+    );
+  }
+
+  // ── Step 5: Research purpose is blocked until Root Authority approval ──
   if (purposeHeader === 'Research') {
     const auditId = await audit('forbidden');
     if (!auditId) {
@@ -293,7 +396,7 @@ export async function GET(
     );
   }
 
-  // ── Step 4: resolve the DID document ──
+  // ── Step 6: resolve the DID document ──
   let record: {
     did_document: Record<string, unknown>;
     status: string;
@@ -335,7 +438,7 @@ export async function GET(
       ? 'success'
       : 'deactivated';
 
-  // ── Step 5: WRITE AUDIT BEFORE RETURNING THE RESPONSE ──
+  // ── Step 7: WRITE AUDIT BEFORE RETURNING THE RESPONSE ──
   // If the audit cannot be written, the resolution must not proceed. 500.
   const auditId = await audit(outcome);
   if (!auditId) {
@@ -349,7 +452,11 @@ export async function GET(
     );
   }
 
-  // ── Step 6: respond ──
+  // ── constant-time floor for resolution outcomes (Hours 61-80) — applied
+  // uniformly before branching so 404/410/200 timings converge ──
+  await enforceResponseTimeFloor(startTime);
+
+  // ── Step 8: respond ──
   if (outcome === 'notFound') {
     return NextResponse.json(
       errorBody('notFound', 'HUUID not found in registry.', requestId),
