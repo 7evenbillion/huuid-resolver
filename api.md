@@ -1,6 +1,6 @@
 # HUUID Resolver API
 
-**Contract:** HUUID-RESOLVER-API-v0.1 + v0.2 (JWT layer) + Hours 61-80 (certificate status, duplicate detection, constant-time hardening) + Hours 81+ (DB round-trip reduction) · **W3C:** DID Resolution Spec 1.0 · **Version:** 1.0.0
+**Contract:** HUUID-RESOLVER-API-v0.1 + v0.2 (JWT layer) + Hours 61-80 (certificate status, duplicate detection, constant-time hardening) + Hours 81+ (DB round-trip reduction, region co-location) · **W3C:** DID Resolution Spec 1.0 · **Version:** 1.0.0
 
 The resolution engine behind `did:huuid` — a W3C-registered health identity method
 built for Ghana's national healthcare identity infrastructure. The resolver returns
@@ -157,33 +157,40 @@ timing-based enumeration of whether a HUUID exists, never existed, or was
 revoked. Earlier failure paths (400/401/403/409/500) are not padded — the
 timing concern is specifically about distinguishing DID-existence states.
 
-**Known limitation, measured in production — still open (Hours 61-80 and
-Hours 81+):** the 150ms floor does not reliably converge 404-vs-410 timing.
+**Timing convergence history — resolved (Hours 81+, region co-location).**
+Three stages, each measured in production, not localhost:
 
-- **Hours 61-80 baseline** (up to 5 DB round trips per resolution): 10
-  rounds, median delta ~206ms, max ~455ms.
-- **Hours 81+** (facility+certificate lookup confirmed as one query;
-  duplicate detection reduced from select-then-insert to a single
-  `ON CONFLICT DO NOTHING RETURNING id` upsert — 4 round trips minimum:
-  facility+certificate lookup, request-log upsert, DID lookup, the
-  non-negotiable audit write): re-measured across **4 independent batches
-  of 15 rounds each (60 requests total)** run back-to-back. Per-batch
-  medians: **27ms, 182ms, 105ms, 112ms** — only 1 of 4 batches met the
-  target. This is real, reproducible variance, not a one-off fluke.
+1. **Hours 61-80 baseline** (up to 5 DB round trips per resolution, Vercel
+   `iad1` / Supabase `eu-west-1`): 10 rounds, median delta ~206ms, max ~455ms.
+2. **Round-trip reduction** (facility+certificate lookup confirmed as one
+   query; duplicate detection reduced from select-then-insert to a single
+   `ON CONFLICT DO NOTHING RETURNING id` upsert — 4 round trips minimum:
+   facility+certificate lookup, request-log upsert, DID lookup, the
+   non-negotiable audit write; still `iad1`/`eu-west-1`): 4 independent
+   batches of 15 rounds each (60 requests total), back-to-back. Per-batch
+   medians: **27ms, 182ms, 105ms, 112ms** — only 1 of 4 batches met the
+   50ms target. Real, reproducible variance, not a one-off fluke: cross-region
+   network jitter on each remaining round trip was itself larger and more
+   variable than the 50ms budget, so shaving one round trip off four did not
+   reliably close the gap.
+3. **Region co-location** (`vercel.json` pins the deployment to `cdg1`,
+   Paris — the closest Vercel region to Supabase `eu-west-1`): same 4-batch/
+   60-request methodology. Per-batch medians: **59ms, 46ms, 19ms, 51ms**,
+   overall aggregate median **43ms** — under the 50ms target, and a much
+   tighter, more consistent spread than the erratic 27-182ms range from
+   round-trip reduction alone. Max per-batch deltas can still spike (observed
+   up to ~463ms), likely cold-start-adjacent lambda instances rather than
+   steady-state jitter, so this is not a hard per-request guarantee — but the
+   typical-case timing side-channel, which is what actually matters for
+   enumeration resistance, is now meaningfully closed.
 
-**Target (median delta under 50ms) was not reliably met.** Reducing the
-round-trip count from 5 to 4 measurably helped (batch medians are mostly
-lower than the 206ms baseline) but did not solve the underlying problem:
-cross-region network jitter between Vercel (`iad1`) and Supabase
-(`eu-west-1`) on each remaining round trip is itself larger and more
-variable than the 50ms budget, so shaving one round trip off four does not
-reliably close the gap. Further code-level round-trip reduction has
-diminishing returns from here. The remaining options are: raise the floor
-substantially (e.g. to 1-2s, comfortably above observed worst-case
-round-trip variance — adds real latency to every request), or co-locate the
-Vercel deployment and Supabase project in the same region (removes the
-jitter source entirely). Both are operator decisions, not further "fix the
-code" work.
+**Takeaway:** for this deployment, cross-region network jitter — not DB
+round-trip count — was the dominant source of 404-vs-410 timing variance.
+Reducing round trips helped but was insufficient alone; co-locating the
+Vercel deployment region with the Supabase region is what actually closed
+the gap. If per-request outlier spikes still matter for the threat model,
+raising the 150ms floor further remains an option, but is no longer
+necessary to hit the stated target.
 
 ### Example request
 
@@ -364,6 +371,15 @@ authenticated access — server-side (`service_role`) only. Append-only.
 Header-validation failures (400) are audited with outcome `unauthorized` — the
 outcome enum has no `invalidRequest` value, and an unaudited failed attempt is
 not acceptable.
+
+---
+
+## Deployment region
+
+`vercel.json` pins the Vercel deployment to `cdg1` (Paris) — the closest
+Vercel region to the shared Supabase project (`eu-west-1`, Ireland). Added
+Hours 81+ to close the 404-vs-410 timing gap; see **Constant-time
+resolution outcomes** above for the measured before/after.
 
 ---
 

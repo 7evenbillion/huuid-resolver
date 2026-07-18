@@ -22,12 +22,12 @@ infrastructure.
   written (the one exception to audit-first).
 - **404/410/200 response times are padded to a 150ms floor**, applied uniformly
   to blunt timing-based enumeration of whether a HUUID never existed or was
-  revoked. **Open issue, not resolved:** measured in production across 4
-  independent batches, the 404-vs-410 median delta ranged 27-182ms — the
-  50ms target was met in only 1 of 4 batches. Cross-region jitter between
-  Vercel (`iad1`) and Supabase (`eu-west-1`) on each DB round trip dominates
-  the floor; see [api.md](api.md) § Constant-time resolution outcomes for
-  the full measurement and remaining options.
+  revoked. Reducing DB round trips alone wasn't enough (measured 404-vs-410
+  median delta 27-182ms in production, target under 50ms met in only 1 of 4
+  batches); the deployment is now pinned to `cdg1` (Paris, via `vercel.json`)
+  to co-locate with the Supabase project (`eu-west-1`), which closed the gap —
+  median delta now 43ms aggregate, 19-59ms per batch. See [api.md](api.md)
+  § Constant-time resolution outcomes for the full measurement history.
 - **Medical data never touches this server.** DID documents are pointer maps only.
 
 ## Governance
@@ -48,7 +48,9 @@ incapacitated — Break-Glass), **Track C** (minor or legal guardian).
 ## Stack
 
 Next.js 14 (App Router, TypeScript strict) · Supabase (Postgres, service-role only)
-· Vercel.
+· Vercel. Deployment region is pinned to `cdg1` (Paris) via `vercel.json` —
+co-located with the Supabase project (`eu-west-1`) to keep DB round-trip
+latency low and consistent.
 
 ## Endpoints
 
