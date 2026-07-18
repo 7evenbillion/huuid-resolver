@@ -22,9 +22,9 @@ export const runtime = 'nodejs';
  * - Facility certificate status (huuid_facilities.certificate_status) is
  *   enforced after JWT verification: suspended/revoked -> 403 forbidden,
  *   audited (Hours 61-80).
- * - X-HUUID-Request-ID must be unique within 24 hours (huuid_request_log).
- *   A duplicate returns 409 duplicateRequest BEFORE any audit write
- *   (Hours 61-80).
+ * - X-HUUID-Request-ID must not repeat (huuid_request_log, single-round-trip
+ *   upsert). A duplicate returns 409 duplicateRequest BEFORE any audit write
+ *   (Hours 61-80, round-trip reduced Hours 81+).
  * - Research purpose is blocked (403) until Root Authority approval.
  *   Root Authority (current): HUUID Protocol Working Group. Upon successful
  *   pilot adoption, operational control transitions to the national health
@@ -225,6 +225,9 @@ export async function GET(
   }
 
   // ── Step 2: verify the facility's Ed25519 JWT (HUUID-RESOLVER-API-v0.2) ──
+  // Single round trip: public_key_multibase (JWT verification) and
+  // certificate_status (Step 3) both come from this one SELECT against
+  // huuid_facilities — confirmed single-query, not split (Hours 81+).
   let jwtFailureReason: string | null = null;
   let facilityCertificateStatus: string | null = null;
   try {
@@ -320,43 +323,27 @@ export async function GET(
 
   // ── Step 4: duplicate X-HUUID-Request-ID detection — must precede any
   // audit write; a duplicate is rejected before huuid_audit_log is touched
-  // (Hours 61-80) ──
+  // (Hours 61-80). Single round trip: INSERT ... ON CONFLICT (request_id)
+  // DO NOTHING RETURNING id, via upsert(ignoreDuplicates) + select. No row
+  // returned means the conflict fired — this request_id was already logged
+  // (Hours 81+, replacing the earlier select-then-insert) ──
   try {
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: existingRequest, error: requestLogLookupError } = await getServiceClient()
+    const { data: insertedRow, error: requestLogError } = await getServiceClient()
       .from('huuid_request_log')
-      .select('request_id')
-      .eq('request_id', requestId)
-      .gte('logged_at', twentyFourHoursAgo)
+      .upsert(
+        { request_id: requestId, facility_did: facility as string },
+        { onConflict: 'request_id', ignoreDuplicates: true }
+      )
+      .select('id')
       .maybeSingle();
 
-    if (requestLogLookupError) throw new Error(requestLogLookupError.message);
+    if (requestLogError) throw new Error(requestLogError.message);
 
-    if (existingRequest) {
+    if (!insertedRow) {
       return NextResponse.json(
-        errorBody(
-          'duplicateRequest',
-          'X-HUUID-Request-ID has already been used within the last 24 hours.',
-          requestId
-        ),
+        errorBody('duplicateRequest', 'X-HUUID-Request-ID has already been used.', requestId),
         { status: 409, headers: baseHeaders(null) }
       );
-    }
-
-    const { error: requestLogInsertError } = await getServiceClient()
-      .from('huuid_request_log')
-      .insert({ request_id: requestId, facility_did: facility as string });
-
-    if (requestLogInsertError) {
-      // Unique violation means this request_id was already logged (e.g. a
-      // row older than 24h still present) — a duplicate, not a server fault.
-      if (requestLogInsertError.code === '23505') {
-        return NextResponse.json(
-          errorBody('duplicateRequest', 'X-HUUID-Request-ID has already been used.', requestId),
-          { status: 409, headers: baseHeaders(null) }
-        );
-      }
-      throw new Error(requestLogInsertError.message);
     }
   } catch (err) {
     console.error(

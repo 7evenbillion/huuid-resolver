@@ -17,10 +17,13 @@ infrastructure.
   log never contains medical data.
 - **Facility certificate status is enforced.** `suspended`/`revoked`
   facilities get `403 forbidden`, audited.
-- **Duplicate `X-HUUID-Request-ID` within 24h is rejected with `409`** —
-  before any audit row is written (the one exception to audit-first).
-- **404/410/200 response times converge** to a 150ms floor, so timing can't
-  reveal whether a HUUID never existed or was revoked.
+- **Duplicate `X-HUUID-Request-ID` is rejected with `409`** — a single-round-trip
+  upsert (`ON CONFLICT DO NOTHING RETURNING id`), before any audit row is
+  written (the one exception to audit-first).
+- **404/410/200 response times are padded to a 150ms floor**, applied uniformly
+  to blunt timing-based enumeration of whether a HUUID never existed or was
+  revoked. See [api.md](api.md) for a measured limitation of this floor under
+  the current Vercel/Supabase region split.
 - **Medical data never touches this server.** DID documents are pointer maps only.
 
 ## Governance

@@ -85,7 +85,7 @@ GET /1.0/identifiers/did:huuid:gh:TEST7X29ALPHAxyz001
 |---|---|---|
 | `X-HUUID-Purpose` | Yes | Enum: `Treatment` \| `Administrative` \| `Research` \| `Emergency`. Missing or invalid → `400`. |
 | `X-HUUID-Facility` | Yes | DID of the requesting facility, e.g. `did:huuid:gh:node-korlebu-reg`. Must equal the JWT `sub` claim exactly, or `401`. |
-| `X-HUUID-Request-ID` | Yes | UUID v4, generated fresh per request. Must equal the JWT `jti` claim exactly, or `401`. Must not repeat within 24 hours, or `409`. Recorded in the audit log. |
+| `X-HUUID-Request-ID` | Yes | UUID v4, generated fresh per request. Must equal the JWT `jti` claim exactly, or `401`. Must never be reused, or `409` — see **Duplicate request detection** below. Recorded in the audit log. |
 | `Accept` | Recommended | `application/did+ld+json` (server default). |
 | `Authorization` | Yes | `Bearer {JWT}` — Ed25519 (EdDSA), signed by the facility's private key, verified against the facility's registered public key in `huuid_facilities`. See **JWT verification** below. |
 
@@ -112,7 +112,10 @@ below.
 ### Certificate status enforcement (Hours 61-80)
 
 After JWT verification, the requesting facility's `certificate_status` is
-checked:
+checked. It comes from the **same query** used to fetch `public_key_multibase`
+for JWT verification (`SELECT public_key_multibase, certificate_status FROM
+huuid_facilities WHERE facility_did = $1`) — one round trip covers both
+concerns, not two.
 
 | `certificate_status` | Result |
 |---|---|
@@ -123,13 +126,27 @@ checked:
 Both outcomes write an audit record with `outcome: forbidden` before the
 response is sent.
 
-### Duplicate request detection (Hours 61-80)
+### Duplicate request detection (Hours 61-80, round-trip reduced Hours 81+)
 
-`X-HUUID-Request-ID` must not repeat within 24 hours (`huuid_request_log`).
-A duplicate returns `409 duplicateRequest` **before `huuid_audit_log` is
-touched at all** — no audit row is written for a rejected duplicate. This is
-the one exception to the audit-first rule, by design: a rejected replay
-never reached resolution.
+`X-HUUID-Request-ID` must not be reused (`huuid_request_log`, `request_id
+UNIQUE`). Enforced in a single round trip:
+
+```sql
+INSERT INTO huuid_request_log (request_id, facility_did)
+VALUES ($1, $2)
+ON CONFLICT (request_id) DO NOTHING
+RETURNING id
+```
+
+No row returned means the conflict fired — the ID was already logged — and
+the request is rejected with `409 duplicateRequest` **before
+`huuid_audit_log` is touched at all**; no audit row is written for a
+rejected duplicate. This is the one exception to the audit-first rule, by
+design: a rejected replay never reached resolution. (An earlier
+implementation used a time-scoped `SELECT` followed by a separate `INSERT`
+— two round trips. Since `request_id` is uniquely constrained forever, not
+just for 24h, and no purge job exists yet, the upsert is both simpler and
+strictly more correct.)
 
 ### Constant-time resolution outcomes (Hours 61-80)
 
@@ -139,6 +156,18 @@ the response is sent, applied uniformly regardless of outcome. This prevents
 timing-based enumeration of whether a HUUID exists, never existed, or was
 revoked. Earlier failure paths (400/401/403/409/500) are not padded — the
 timing concern is specifically about distinguishing DID-existence states.
+
+**Known limitation, measured in production (Hours 61-80):** the 150ms floor
+alone did not reliably converge 404-vs-410 timing — cross-region network
+jitter between the Vercel deployment (`iad1`) and the Supabase project
+(`eu-west-1`) across multiple sequential DB round trips dwarfed the floor
+(median delta ~206ms, max ~455ms across 10 rounds). Hours 81+ reduced the
+round-trip count per resolution from up to 5 to a minimum of 4
+(facility+certificate lookup, request-log upsert, DID lookup, the
+non-negotiable audit write) — see the deployment report for the re-measured
+result. If still insufficient, the remaining fix is raising the floor
+substantially or co-locating the Vercel and Supabase regions, not further
+code changes.
 
 ### Example request
 
@@ -227,7 +256,7 @@ human-readable.
 | 401 | `unauthorized` | JWT missing/expired/invalid signature, `aud` mismatch, `exp - iat > 300s`, `jti` != `X-HUUID-Request-ID`, `sub` != `X-HUUID-Facility`, or unknown facility | Generate a fresh JWT with matching claims. |
 | 403 | `forbidden` | `Research` purpose — blocked until Root Authority approval; facility certificate `suspended` or `revoked` | Contact the Root Authority (HUUID Protocol Working Group — see Governance). |
 | 404 | `notFound` | HUUID does not exist. Identical response time to `410` (150ms floor) — no enumeration signal. | Do not retry. |
-| 409 | `duplicateRequest` | `X-HUUID-Request-ID` reused within 24h. No audit row is written for this outcome. | Generate a new UUID. |
+| 409 | `duplicateRequest` | `X-HUUID-Request-ID` reused (enforced indefinitely — see **Duplicate request detection**). No audit row is written for this outcome. | Generate a new UUID. |
 | 410 | `deactivated` | HUUID exists but is revoked or suspended | Patient must re-enroll at the issuing node. |
 | 429 | `rateLimitExceeded` | *(later stage)* >50 unique resolutions/hour for Treatment/Administrative | Respect `Retry-After`. |
 | 500 | `internalError` | **Audit write failed — resolution aborted.** Also raised on DB lookup failure. | Retry later; the resolver refuses to resolve unaudited. |
@@ -293,7 +322,7 @@ authenticated access — server-side (`service_role`) only. Append-only.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid | PK |
-| `request_id` | uuid | Unique. Checked for reuse within a rolling 24h window before every resolution. |
+| `request_id` | uuid | Unique. Enforced indefinitely via `ON CONFLICT DO NOTHING` (no time window, no purge job yet — see Deferred). |
 | `facility_did` | text | The requesting facility. |
 | `logged_at` | timestamptz | |
 
