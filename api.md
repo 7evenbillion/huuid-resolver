@@ -1,6 +1,6 @@
 # HUUID Resolver API
 
-**Contract:** HUUID-RESOLVER-API-v0.1 + v0.2 (JWT layer) + Hours 61-80 (certificate status, duplicate detection, constant-time hardening) + Hours 81+ (DB round-trip reduction, region co-location) + Month 3 (HUUID-BREAK-GLASS-API-v0.2) · **W3C:** DID Resolution Spec 1.0 · **Version:** 1.0.0
+**Contract:** HUUID-RESOLVER-API-v0.1 + v0.2 (JWT layer) + Hours 61-80 (certificate status, duplicate detection, constant-time hardening) + Hours 81+ (DB round-trip reduction, region co-location) + Month 3 (HUUID-BREAK-GLASS-API-v0.2) + Month 4 (HUUID-EMR-STUB-v0.1.2 §P4, Stub Integrity Alert receiver) · **W3C:** DID Resolution Spec 1.0 · **Version:** 1.0.0
 
 The resolution engine behind `did:huuid` — a W3C-registered health identity method
 built for Ghana's national healthcare identity infrastructure. The resolver returns
@@ -494,6 +494,49 @@ rather than a failure of the protocol.
 
 ---
 
+## Stub Integrity Alert endpoint (Month 4 — HUUID-EMR-STUB-v0.1.2 §P4)
+
+### `POST /1.0/stub-integrity`
+
+Receives process-integrity violation alerts from EMR Stub installations.
+A Stub POSTs here when its local HMAC manifest of `src/`/`scripts/`
+(signed with the facility's Ed25519 key) no longer matches its signed
+baseline — see `huuid-emr-stub`'s `integrity-check.ts`.
+
+**No auth required — and this is a real, current limitation, not just a
+design choice.** The payload carries an EdDSA `signature` field, but this
+endpoint does **not** verify it against the reporting facility's public
+key (`huuid_facilities.public_key_multibase`) before writing the row.
+Until that verification is built, `huuid_stub_integrity_log` is a
+diagnostic log of self-reported claims, not a verified audit trail —
+anyone who can reach this endpoint can write a row that reads as if it
+came from any `facilityDID` they choose to claim.
+
+Request body:
+
+```json
+{
+  "facilityDID": "did:huuid:gh:node-test-001",
+  "manifestHash": "hex string",
+  "stubVersion": "0.1.2",
+  "timestamp": "ISO 8601",
+  "signature": "base64url EdDSA signature over manifestHash",
+  "violation": true
+}
+```
+
+Malformed bodies are logged with best-effort field extraction (missing
+fields become `"unknown"`) rather than rejected with `400` — an
+integrity-violation alert is exactly the kind of signal that should never
+be silently dropped for being slightly malformed.
+
+Response: always `200 OK`, `{ "received": true }` — this is a best-effort
+alert receiver, not a resolution path. A Stub that can't reach it already
+logs locally and retries on its next scheduled check (every 6 hours) or
+next startup.
+
+---
+
 ## Supporting endpoints
 
 ### `GET /api/health`
@@ -678,6 +721,25 @@ abuse. `service_role`: SELECT, INSERT, UPDATE (for reinstatement).
 | `reinstated_at` | timestamptz | Set on manual reinstatement (no tooling yet — direct DB update only) |
 | `active` | boolean | The authoritative suspension flag, checked fresh on every Break-Glass request |
 
+## Stub integrity log schema (`huuid_stub_integrity_log`)
+
+Month 4 (P4). Append-only report log from `POST /1.0/stub-integrity` — see
+that section above for the "no signature verification yet" caveat, which
+applies to every row in this table. `service_role`: SELECT, INSERT only.
+Not (yet) declared immutable with a trigger the way `huuid_audit_log`/
+`huuid_bg_audit_log` are — revisit if this log becomes evidentiary rather
+than operational/diagnostic.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK |
+| `facility_did` | text | Self-reported by the Stub — not verified against `huuid_facilities` |
+| `manifest_hash` | text | The Stub's locally-computed manifest hash at the time of the violation |
+| `stub_version` | text | |
+| `reported_at` | timestamptz | |
+| `violation` | boolean | Always `true` for alerts sent by the current Stub build (no "all clear" pings) |
+| `ip_hash` | text | SHA-256 — never the raw IP |
+
 ---
 
 ## Deployment region
@@ -735,3 +797,15 @@ resolution outcomes** above for the measured before/after.
 - TLS 1.3-only enforcement (v0.2 requires it for this endpoint specifically)
   — an edge/CDN-level negotiation setting outside what Next.js app code on
   standard Vercel controls, same known gap as the standard resolver
+
+**Stub Integrity (Month 4), specifically:**
+
+- Signature verification on `POST /1.0/stub-integrity` — the endpoint
+  accepts, logs, and returns 200 without checking `signature` against the
+  reporting facility's public key (`huuid_facilities.public_key_multibase`).
+  See **Stub Integrity Alert endpoint** above.
+- Immutability trigger on `huuid_stub_integrity_log` (unlike `huuid_audit_log`
+  / `huuid_bg_audit_log`) — currently an operational/diagnostic log, not an
+  evidentiary one
+- Alerting/paging the Root Authority on a real violation (rows are logged
+  to Supabase only; no notification path to a human yet)
