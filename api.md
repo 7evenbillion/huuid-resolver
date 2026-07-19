@@ -503,14 +503,14 @@ A Stub POSTs here when its local HMAC manifest of `src/`/`scripts/`
 (signed with the facility's Ed25519 key) no longer matches its signed
 baseline — see `huuid-emr-stub`'s `integrity-check.ts`.
 
-**No auth required — and this is a real, current limitation, not just a
-design choice.** The payload carries an EdDSA `signature` field, but this
-endpoint does **not** verify it against the reporting facility's public
-key (`huuid_facilities.public_key_multibase`) before writing the row.
-Until that verification is built, `huuid_stub_integrity_log` is a
-diagnostic log of self-reported claims, not a verified audit trail —
-anyone who can reach this endpoint can write a row that reads as if it
-came from any `facilityDID` they choose to claim.
+**Signature-verified — no other auth.** The payload's EdDSA `signature`
+field is verified against the reporting facility's public key
+(`huuid_facilities.public_key_multibase`) before anything is written.
+The signature covers the raw UTF-8 bytes of `manifestHash` directly (no
+canonical-JSON pre-hash — this is a different construction from the
+Break-Glass request-signature scheme; see `lib/stub-integrity-signature.ts`).
+`huuid_stub_integrity_log` is a verified audit trail: every row that
+exists passed signature verification against the `facilityDID` it claims.
 
 Request body:
 
@@ -521,19 +521,27 @@ Request body:
   "stubVersion": "0.1.2",
   "timestamp": "ISO 8601",
   "signature": "base64url EdDSA signature over manifestHash",
-  "violation": true
+  "violation": true,
+  "override": false
 }
 ```
 
-Malformed bodies are logged with best-effort field extraction (missing
-fields become `"unknown"`) rather than rejected with `400` — an
-integrity-violation alert is exactly the kind of signal that should never
-be silently dropped for being slightly malformed.
+`override: true` marks an alert sent because the Stub started anyway
+under `HUUID_INTEGRITY_OVERRIDE=1` despite a failed integrity check — see
+`huuid-emr-stub`'s `integrity-check.ts` grace-period/override mechanism.
 
-Response: always `200 OK`, `{ "received": true }` — this is a best-effort
-alert receiver, not a resolution path. A Stub that can't reach it already
-logs locally and retries on its next scheduled check (every 6 hours) or
-next startup.
+Verification order and responses:
+
+1. `facilityDID` missing or malformed → `403`, `{ "received": false, "error": "…" }`, not logged.
+2. `facilityDID` not found in `huuid_facilities` → `403`, not logged.
+3. `manifestHash` or `signature` missing → `401`, not logged.
+4. Signature does not verify against the facility's public key → `401`, not logged.
+5. Verified → `200 OK`, `{ "received": true }`, row inserted with
+   `signature_verified: true`.
+
+A Stub that gets rejected already logs locally and retries on its next
+scheduled check (every 6 hours) or next startup — there is no separate
+retry-on-reject path server-side.
 
 ---
 
@@ -723,9 +731,9 @@ abuse. `service_role`: SELECT, INSERT, UPDATE (for reinstatement).
 
 ## Stub integrity log schema (`huuid_stub_integrity_log`)
 
-Month 4 (P4). Append-only report log from `POST /1.0/stub-integrity` — see
-that section above for the "no signature verification yet" caveat, which
-applies to every row in this table. `service_role`: SELECT, INSERT only.
+Month 4 (P4). Append-only report log from `POST /1.0/stub-integrity`.
+Every row has passed signature verification against the `facility_did`
+it claims — see that section above. `service_role`: SELECT, INSERT only.
 Not (yet) declared immutable with a trigger the way `huuid_audit_log`/
 `huuid_bg_audit_log` are — revisit if this log becomes evidentiary rather
 than operational/diagnostic.
@@ -733,11 +741,13 @@ than operational/diagnostic.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid | PK |
-| `facility_did` | text | Self-reported by the Stub — not verified against `huuid_facilities` |
+| `facility_did` | text | Verified against `huuid_facilities.public_key_multibase` before insert (migration 007) |
 | `manifest_hash` | text | The Stub's locally-computed manifest hash at the time of the violation |
 | `stub_version` | text | |
 | `reported_at` | timestamptz | |
 | `violation` | boolean | Always `true` for alerts sent by the current Stub build (no "all clear" pings) |
+| `override` | boolean | `true` when the Stub started anyway under `HUUID_INTEGRITY_OVERRIDE=1` (migration 008) |
+| `signature_verified` | boolean | `not null default false`; always `true` on rows inserted after migration 007 — rows can only be inserted post-verification |
 | `ip_hash` | text | SHA-256 — never the raw IP |
 
 ---
@@ -800,12 +810,12 @@ resolution outcomes** above for the measured before/after.
 
 **Stub Integrity (Month 4), specifically:**
 
-- Signature verification on `POST /1.0/stub-integrity` — the endpoint
-  accepts, logs, and returns 200 without checking `signature` against the
-  reporting facility's public key (`huuid_facilities.public_key_multibase`).
-  See **Stub Integrity Alert endpoint** above.
 - Immutability trigger on `huuid_stub_integrity_log` (unlike `huuid_audit_log`
   / `huuid_bg_audit_log`) — currently an operational/diagnostic log, not an
   evidentiary one
 - Alerting/paging the Root Authority on a real violation (rows are logged
   to Supabase only; no notification path to a human yet)
+
+Signature verification on `POST /1.0/stub-integrity` is **closed**, not
+deferred — see **Stub Integrity Alert endpoint** above and
+`huuid-emr-stub/docs/TECHNICAL-DECISIONS.md` §11.
