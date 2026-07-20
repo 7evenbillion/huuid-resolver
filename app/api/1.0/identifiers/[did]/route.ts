@@ -364,6 +364,96 @@ export async function GET(
     );
   }
 
+  // ── Step 4.5: rate limiting for Treatment/Administrative (HUUID-RESOLVER-
+  // API-v0.2 Section 5: "50 unique/hour, Rolling 60 min, 429 + Retry-After").
+  // Research is already blocked outright (Step 5, never reaches here in
+  // practice). Emergency is explicitly unlimited per the same table -- not
+  // gated here.
+  //
+  // Reuses huuid_request_log rather than a new table: Step 4 above already
+  // upserted this request's row (facility_did, logged_at) for duplicate
+  // detection before we get here, so counting rows for this facility in the
+  // last 60 minutes naturally INCLUDES the current request. Request #51
+  // brings the count to 51 (>50) -> 429; requests 1-50 all count <=50 and
+  // pass. This is what makes "429 after 50 requests" / "the 51st request"
+  // true without a second write.
+  //
+  // Scope decision, not yet confirmed by Root Authority: Treatment and
+  // Administrative share ONE 50/hour counter per facility here, rather than
+  // each purpose code getting its own independent 50. The spec's table
+  // lists them as separate rows with the same limit, which could mean
+  // either. Every test in Month 5's stress-testing brief only exercises
+  // Treatment, so this doesn't affect any DoD item, but it's a real
+  // ambiguity — flagged on the pre-pilot checklist, not silently resolved.
+  if (purposeHeader === 'Treatment' || purposeHeader === 'Administrative') {
+    const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+    const RATE_LIMIT_MAX = 50;
+    const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
+    try {
+      const { count, error: rateLimitCountError } = await getServiceClient()
+        .from('huuid_request_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('facility_did', facility as string)
+        .gte('logged_at', windowStart.toISOString());
+      if (rateLimitCountError) throw new Error(rateLimitCountError.message);
+
+      if ((count ?? 0) > RATE_LIMIT_MAX) {
+        const { data: oldestInWindow } = await getServiceClient()
+          .from('huuid_request_log')
+          .select('logged_at')
+          .eq('facility_did', facility as string)
+          .gte('logged_at', windowStart.toISOString())
+          .order('logged_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        const retryAfterSeconds = oldestInWindow
+          ? Math.max(
+              1,
+              Math.ceil(
+                (new Date(oldestInWindow.logged_at).getTime() + RATE_LIMIT_WINDOW_MS - Date.now()) / 1000
+              )
+            )
+          : 3600;
+
+        const auditId = await audit('rateLimitExceeded');
+        if (!auditId) {
+          return NextResponse.json(
+            errorBody('internalError', 'Audit write failed. Resolution aborted.', requestId),
+            { status: 500, headers: baseHeaders(null) }
+          );
+        }
+        return NextResponse.json(
+          errorBody(
+            'rateLimitExceeded',
+            `Over ${RATE_LIMIT_MAX} unique resolutions/hour for ${purposeHeader}.`,
+            requestId
+          ),
+          {
+            status: 429,
+            headers: { ...baseHeaders(auditId), 'Retry-After': String(retryAfterSeconds) },
+          }
+        );
+      }
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          requestId,
+          action: 'rate_limit_count_failed',
+          resource: 'huuid_request_log',
+          status: 500,
+          message: err instanceof Error ? err.message : 'unknown',
+          timestamp: new Date().toISOString(),
+        })
+      );
+      const auditId = await audit('internalError');
+      return NextResponse.json(
+        errorBody('internalError', 'Rate limit check failed.', requestId),
+        { status: 500, headers: baseHeaders(auditId) }
+      );
+    }
+  }
+
   // ── Step 5: Research purpose is blocked until Root Authority approval ──
   if (purposeHeader === 'Research') {
     const auditId = await audit('forbidden');
