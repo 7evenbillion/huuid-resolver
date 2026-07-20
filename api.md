@@ -494,6 +494,43 @@ rather than a failure of the protocol.
 
 ---
 
+## Resolver Public Key endpoint (Month 4 — QR verification, tier 4)
+
+### `GET /1.0/resolver-public-key`
+
+Public, unauthenticated. Publishes the resolver's Ed25519 signing public
+key so EMR Stub installations can verify offline QR card tokens (Section
+3.1 tier 4) with zero network access at verification time — a Stub with
+no internet still needs to have fetched this once while it had
+connectivity (`huuid-emr-stub`'s `npm run download-keys`), and any
+clinician's phone/browser should be able to sanity-check a card's issuer
+key without a credential.
+
+Response:
+
+```json
+{
+  "publicKeyMultibase": "z6Mk...",
+  "keyId": "huuid-resolver-gh-v1",
+  "validFrom": "2026-07-20T00:00:00.000Z",
+  "algorithm": "Ed25519"
+}
+```
+
+**Known, deliberate simplification — read before assuming this is a
+production-ready key separation:** `HUUID_TEST_FACILITY_JWK` is the only
+signing keypair that exists in this environment, so this endpoint
+currently publishes the *exact same public key* as the seeded test
+facility in `huuid_facilities`. Production needs a distinct
+resolver-owned signing keypair, used only to sign patient QR cards at
+enrollment, never a facility's own key — a real key-issuance/rotation
+mechanism does not exist yet (`validFrom` is a hardcoded constant in the
+route, not read from any ledger). Tracked as a pre-pilot item. See
+`huuid-emr-stub/docs/TECHNICAL-DECISIONS.md` §12 for the full honesty
+note on what this means for that repo's QR verification tests.
+
+---
+
 ## Stub Integrity Alert endpoint (Month 4 — HUUID-EMR-STUB-v0.1.2 §P4)
 
 ### `POST /1.0/stub-integrity`
@@ -786,7 +823,7 @@ resolution outcomes** above for the measured before/after.
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Anon key (no table access — everything is service-role) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Server only** | Resolver DB access. Never in client code, never logged. |
 | `HUUID_RESOLVER_VERSION` | Server | Version stamped into responses and audit rows |
-| `HUUID_TEST_FACILITY_JWK` | **Server only** | Ed25519 private key (JWK JSON) for the seeded test facility. Used exclusively by `/debug/resolver` and `/debug/break-glass` to sign demonstration JWTs, ProviderJWTs, and Break-Glass `requestSignature`s. Never committed. |
+| `HUUID_TEST_FACILITY_JWK` | **Server only** | Ed25519 private key (JWK JSON) for the seeded test facility. Used by `/debug/resolver` and `/debug/break-glass` to sign demonstration JWTs, ProviderJWTs, and Break-Glass `requestSignature`s — and, as of Month 4, also the key `GET /1.0/resolver-public-key` publishes (see that section's honesty note: this is a testing stand-in, not a real resolver-owned signing key). Never committed. |
 
 ---
 
@@ -796,6 +833,16 @@ resolution outcomes** above for the measured before/after.
 - Standard-resolver Emergency-purpose threshold automation (>10/24h → certificate suspension) — distinct from the dedicated Break-Glass endpoint's own rate limiter, shipped Month 3
 - Full JWT `iss`/`kid` chain validation beyond `sub`/`aud`/`exp`/`iat`/`jti`
 - `huuid_request_log` retention/purge job (rows currently accumulate indefinitely)
+
+**QR verification (Month 4), specifically:**
+
+- A real, distinct resolver-owned signing keypair for `GET
+  /1.0/resolver-public-key` — currently the seeded test facility's key,
+  see that section's honesty note
+- Any actual QR card issuance mechanism — this build stage is
+  verification-only, nothing generates a signed card
+- A real key-issuance/rotation ledger — `validFrom` in the response is a
+  hardcoded constant in the route
 
 **Break-Glass (Month 3), specifically:**
 
