@@ -54,10 +54,13 @@ The audit log (`huuid_audit_log`) permits INSERT and SELECT for `service_role` o
 There is no UPDATE policy. There is no DELETE policy. Database triggers reject both
 operations even for roles that bypass RLS.
 
-**Audit log access:** Root Authority via service role only. Facilities see only
-their own records. Patients can request their own access history.
-Endpoint: `GET /1.0/audit/{huuid}` — requires scoped JWT *(later build stage)*.
-The audit log never contains medical data.
+**Audit log access:** Root Authority via service role only, or via
+`GET /1.0/audit/{huuid}` with its own facility JWT (sees every facility's
+records for that HUUID). Facilities see only their own records via the
+same endpoint. Patients can request their own access history — that
+specific endpoint (`GET /1.0/audit/my-records`) is not built yet, see
+**Deferred to later build stages**. The audit log never contains medical
+data.
 
 ---
 
@@ -281,17 +284,59 @@ human-readable.
 | 404 | `notFound` | HUUID does not exist. Identical response time to `410` (150ms floor) — no enumeration signal. | Do not retry. |
 | 409 | `duplicateRequest` | `X-HUUID-Request-ID` reused (enforced indefinitely — see **Duplicate request detection**). No audit row is written for this outcome. | Generate a new UUID. |
 | 410 | `deactivated` | HUUID exists but is revoked or suspended | Patient must re-enroll at the issuing node. |
-| 429 | `rateLimitExceeded` | *(later stage)* >50 unique resolutions/hour for Treatment/Administrative | Respect `Retry-After`. |
+| 429 | `rateLimitExceeded` | >50 requests/hour (rolling) for Treatment/Administrative, this facility | `Retry-After` header set to seconds until the oldest in-window request ages out. Audited. |
 | 500 | `internalError` | **Audit write failed — resolution aborted.** Also raised on DB lookup failure. | Retry later; the resolver refuses to resolve unaudited. |
 
 ### Rate limits
 
 | Purpose | Limit | Current build behaviour |
 |---|---|---|
-| Treatment | 50 unique/hour (rolling) | Not yet enforced (later stage) |
-| Administrative | 50 unique/hour (rolling) | Not yet enforced (later stage) |
+| Treatment | 50/hour (rolling), per facility | **Enforced** ✅ (Month 5) |
+| Administrative | 50/hour (rolling), per facility | **Enforced** ✅ (Month 5) — see note below: shares Treatment's counter |
 | Research | 0 — blocked | **`403 forbidden` immediately** ✅ |
 | Emergency | Unlimited (Break-Glass rules apply) | Audited with `break_glass: true` ✅ |
+
+**Implementation (Month 5):** reuses `huuid_request_log` — already tracking
+`facility_did`/`logged_at` per request for duplicate-ID detection — rather
+than a new table. The duplicate-detection upsert (Step 4) writes the
+current request's row before the rate-limit check runs (Step 4.5), so a
+single `COUNT` of this facility's rows in the trailing 60 minutes naturally
+includes the request being processed: the 51st request brings the count to
+51 and is rejected. Gated to `Treatment`/`Administrative` only — `Research`
+is already blocked earlier in the pipeline, `Emergency` is explicitly
+unlimited per the table above.
+
+**Open question, not resolved by this implementation:** the spec lists
+Treatment and Administrative as separate rows with the same limit, which
+could mean either a shared 50/hour pool per facility (what's built) or two
+independent 50/hour pools. Every test exercising this limit — Month 5's
+red-team Attack 4, Load Tests 1-2 — only used Treatment, so this ambiguity
+doesn't affect any verified behavior, but it's a real product decision for
+Root Authority, not something resolved by this build.
+
+**Real finding, Month 5 load testing — race condition under high burst
+concurrency, not a security bypass:** at 100 concurrent connections, a
+single test run against a facility with zero prior requests produced only
+42 successful (`200`) resolutions before the limiter engaged, not a clean
+50 — confirmed via `huuid_audit_log` (42 `success`, 2817
+`rateLimitExceeded` out of 2859 total), not a client-side measurement
+artifact. Root cause: the count-then-check is not atomic with the insert.
+Under a tight concurrent burst, many requests can each insert their own
+row and then read the count *before* seeing each other's inserts, so a
+batch larger than the true "first 50" can all observe a count already over
+50. At a moderate, paced rate (one request per ~300ms, Load Test 2's
+literal spec) the same code produced an exact 50/150 split with zero
+discrepancy — the race only manifests under simultaneous high-concurrency
+bursts. **Important: this makes the limiter conservative, not permissive**
+— in the observed run, *fewer* legitimate requests succeeded than the
+nominal 50, never more; no attacker can exploit this race to exceed the
+intended budget. Tracked on the pre-pilot checklist as a fairness/precision
+gap (some legitimate concurrent requests can be incorrectly rejected), not
+a security gap. Fix: make the count-and-insert atomic — e.g. a Postgres
+function using `SELECT ... FOR UPDATE` on a per-facility counter row, or a
+single `INSERT ... RETURNING count` pattern — applied to both this limiter
+and Break-Glass's (`huuid_bg_rate_limit`, same structural pattern, see
+below).
 
 Rate limits are per facility DID, not per IP. More than 10 Emergency resolutions
 from one facility in 24 hours triggers Root Authority review (Break-Glass spec).
@@ -447,6 +492,34 @@ deterministically true rather than mutually exclusive.
 | **10th** | **Still processed — returns 200.** Patient safety overrides security controls; this is non-negotiable. A `huuid_facility_suspensions` row is opened (`active: true`, `reason: 'bg_rate_limit_exceeded'`) as part of the same request. |
 | 11th+ | `429 rateLimitExceeded` until Root Authority (HUUID Protocol Working Group) reinstates. |
 
+**Real finding, Month 5 load testing — the suspension row can silently
+never get created under true concurrency, even though the 429 enforcement
+itself still holds.** Load Test 3 fired 10 genuinely simultaneous
+Break-Glass requests (`Promise.all`, not sequential) against a facility
+with zero prior Break-Glass history: all 10 correctly returned `200`, and
+an 11th fired afterward correctly returned `429`. But
+`huuid_facility_suspensions` had **zero** rows for that facility —
+confirmed by direct query, not inferred. Root cause: the "is this the
+10th request" check (`newCount === SUSPEND_AT_COUNT`) is computed per
+request from a `priorCount` read *before* that request's own insert lands.
+Under true concurrency all 10 requests can each read a low `priorCount`
+(0 through a few) before any of the others' inserts are visible, so
+**none** of them individually computes `newCount === 10` — the branch that
+opens the suspension row and (per §5's table) is meant to trigger a
+Root Authority critical alert never fires for the burst as a whole. The
+11th request still correctly returns `429`, because *that* check
+(`priorCount >= 10`) runs after all 10 inserts are already durably
+committed and visible — enforcement holds, but the record of *why*, and
+the alert path hanging off it, is silently skipped. This is the same
+structural race as the standard-resolution finding above (count read is
+not atomic with the triggering insert), with a more serious consequence
+here: not unfair rejection, but a missing legal/audit record and a missing
+Root Authority alert for a genuine mass-Break-Glass-abuse burst — exactly
+the scenario Section 1's "criminal liability" framing cares most about
+catching. Tracked as a pre-pilot item alongside the standard-resolution
+race; the same atomic count-and-insert fix (a Postgres function with row
+locking) closes both, since both use the identical structural pattern.
+
 ### Patient notification (60-second SLA)
 
 Every successful Break-Glass access must trigger patient notification
@@ -528,6 +601,68 @@ mechanism does not exist yet (`validFrom` is a hardcoded constant in the
 route, not read from any ledger). Tracked as a pre-pilot item. See
 `huuid-emr-stub/docs/TECHNICAL-DECISIONS.md` §12 for the full honesty
 note on what this means for that repo's QR verification tests.
+
+---
+
+## Audit Log Access endpoint (Month 5 — HUUID-RESOLVER-API-v0.2 §1.1/6.2)
+
+### `GET /1.0/audit/{huuid}`
+
+Facility-JWT-authenticated. Same verification as standard resolution
+(`Authorization: Bearer {JWT}`, verified against the requesting facility's
+`huuid_facilities.public_key_multibase`, `sub` must match
+`X-HUUID-Facility`) — reuses `lib/facility-jwt.ts` directly, no new
+verification path. Not rate-limited, no duplicate-request-id check: this
+reads one's own audit trail rather than triggering a resolution event, and
+neither constraint is named in the spec for this endpoint.
+
+Returns the last 50 `huuid_audit_log` records for the given HUUID. Scope
+depends on the verified requester's identity, not any client-supplied
+parameter:
+
+- Any ordinary facility: only records where `requesting_facility` matches
+  that facility's own DID.
+- The Root Authority's own facility DID
+  (`did:huuid:gh:root-authority-hpwg`, seeded in `huuid_facilities` like
+  any other facility — no special signature-verification path, only a
+  special *query scope* applied once identity is established the normal
+  way): every record for that HUUID, across every facility.
+
+Response:
+
+```json
+{
+  "huuid": "did:huuid:gh:TEST7X29ALPHAxyz001",
+  "scope": "own_facility_only",
+  "recordCount": 2,
+  "records": [
+    {
+      "auditEntryId": "audit-20260720-232116-2784d4dd",
+      "requestId": "2784d4dd-4dad-4c76-ac15-ac91e9a56d40",
+      "requestingFacility": "did:huuid:gh:node-test-001",
+      "purposeCode": "Treatment",
+      "outcome": "success",
+      "breakGlass": false,
+      "resolvedAt": "2026-07-20T23:21:16.376877+00:00",
+      "responseTimeMs": 495
+    }
+  ]
+}
+```
+
+`scope` is `"own_facility_only"` or `"all_facilities"` — present in every
+response so a caller can tell which view it received without inferring it
+from record contents.
+
+Verified end-to-end for the Month 5 NHIA fraud-detection demo: two
+facilities each resolved the same test HUUID; the querying facility's own
+`GET /1.0/audit/{huuid}` call showed only its own record (50 returned,
+capped at `MAX_RECORDS`, all from that one facility — this test facility
+has substantial resolution history from earlier build steps); the Root
+Authority's call against the same HUUID showed records from **three**
+distinct facilities (the two from this demo plus one left over from Month
+5's own load testing), confirming the cross-facility scope organically,
+not just for two planted rows.
 
 ---
 
@@ -825,14 +960,61 @@ resolution outcomes** above for the measured before/after.
 | `HUUID_RESOLVER_VERSION` | Server | Version stamped into responses and audit rows |
 | `HUUID_TEST_FACILITY_JWK` | **Server only** | Ed25519 private key (JWK JSON) for the seeded test facility. Used by `/debug/resolver` and `/debug/break-glass` to sign demonstration JWTs, ProviderJWTs, and Break-Glass `requestSignature`s — and, as of Month 4, also the key `GET /1.0/resolver-public-key` publishes (see that section's honesty note: this is a testing stand-in, not a real resolver-owned signing key). Never committed. |
 
+### Month 5 test facilities
+
+Four additional rows in `huuid_facilities`, created for Month 5 red-team
+and load testing so each test could start from a clean rate-limit window
+rather than sharing (and corrupting the results of) the primary seeded
+test facility's rolling counters:
+
+| Facility DID | Purpose | Private key |
+|---|---|---|
+| `did:huuid:gh:node-loadtest-002` | Attack 4 (bulk harvest), Load Test 3 (Break-Glass concurrency) | Generated to a local scratch file during testing, **deleted afterward — not recoverable** |
+| `did:huuid:gh:node-loadtest-003` | Load Test 1 (sustained load) | Same — deleted |
+| `did:huuid:gh:node-loadtest-004` | Load Test 2 (paced rate-limit test) | Same — deleted |
+| `did:huuid:gh:root-authority-hpwg` | The Root Authority's own facility identity — used both as an ordinary querying facility in the NHIA fraud demo and to exercise `GET /1.0/audit/{huuid}`'s cross-facility scope | Generated to a local scratch file, **deleted afterward — not recoverable** |
+
+These rows are harmless to leave in place (no PII, `certificate_status:
+active`, just a public key with no way to sign anything against it
+anymore) and are left as a record of what Month 5 actually tested against,
+rather than being deleted and losing that provenance. `did:huuid:gh:root-
+authority-hpwg` specifically should be re-keyed with a real, retained
+private key before it is used for anything beyond testing — see **GET
+/1.0/audit/{huuid}** above for what identity currently grants elevated
+access.
+
 ---
 
 ## Deferred to later build stages
 
-- Rolling rate limits + `Retry-After` (Treatment/Administrative)
 - Standard-resolver Emergency-purpose threshold automation (>10/24h → certificate suspension) — distinct from the dedicated Break-Glass endpoint's own rate limiter, shipped Month 3
 - Full JWT `iss`/`kid` chain validation beyond `sub`/`aud`/`exp`/`iat`/`jti`
 - `huuid_request_log` retention/purge job (rows currently accumulate indefinitely)
+
+**Security stress testing (Month 5), specifically:**
+
+- **Atomic rate-limit counting.** Both `huuid_request_log`-based standard-
+  resolution rate limiting and `huuid_bg_rate_limit`-based Break-Glass rate
+  limiting use a count-then-insert pattern that is not atomic. Confirmed
+  under real concurrent load (see **Rate limits** and the Break-Glass rate
+  limit table above for the two specific findings): the enforcement ceiling
+  itself always held in testing — no attacker got more than the intended
+  budget in either system — but (a) standard resolution can under-deliver
+  legitimate successes under a high-concurrency burst, and (b) Break-Glass
+  can silently skip creating the `huuid_facility_suspensions` row (and
+  therefore the Root Authority alert hanging off it) for a burst that hits
+  exactly the suspension threshold concurrently. Fix: a Postgres function
+  using row locking (`SELECT ... FOR UPDATE` on a per-facility counter, or
+  equivalent) so the read-count-then-decide step is atomic with the write,
+  applied to both call sites.
+- `GET /1.0/audit/my-records` (patient self-access) — still not built;
+  `GET /1.0/audit/{huuid}` (facility- and Root-Authority-scoped) shipped
+  this month, but the patient-facing endpoint is a separate piece of work.
+- Root Authority identity (`did:huuid:gh:root-authority-hpwg`) currently
+  has a private key that was generated to a local scratch file during
+  testing and deliberately deleted afterward — see **Month 5 test
+  facilities** above. Needs a real, retained keypair before this identity
+  is used for anything beyond testing.
 
 **QR verification (Month 4), specifically:**
 
