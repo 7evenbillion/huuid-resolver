@@ -22,6 +22,10 @@ const nextConfig = {
         source: '/1.0/resolver-public-key',
         destination: '/api/1.0/resolver-public-key',
       },
+      {
+        source: '/1.0/audit/:huuid',
+        destination: '/api/1.0/audit/:huuid',
+      },
     ];
   },
 };
