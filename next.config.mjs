@@ -18,6 +18,10 @@ const nextConfig = {
         source: '/1.0/stub-integrity',
         destination: '/api/1.0/stub-integrity',
       },
+      {
+        source: '/1.0/resolver-public-key',
+        destination: '/api/1.0/resolver-public-key',
+      },
     ];
   },
 };
