@@ -734,9 +734,26 @@ abuse. `service_role`: SELECT, INSERT, UPDATE (for reinstatement).
 Month 4 (P4). Append-only report log from `POST /1.0/stub-integrity`.
 Every row has passed signature verification against the `facility_did`
 it claims — see that section above. `service_role`: SELECT, INSERT only.
-Not (yet) declared immutable with a trigger the way `huuid_audit_log`/
-`huuid_bg_audit_log` are — revisit if this log becomes evidentiary rather
-than operational/diagnostic.
+**Immutable** (migration 009) — UPDATE and DELETE are both rejected at
+the database level by a trigger, matching `huuid_audit_log` /
+`huuid_bg_audit_log` exactly. Closed once signature verification
+(migration 007) made this a verified audit trail rather than a log of
+unverified self-reported claims — the earlier "revisit if this becomes
+evidentiary" note is resolved, not still open.
+
+**Real gap, not yet closed: nobody is notified when a row is written.**
+Rows accumulate here whether they represent a routine violation or an
+emergency override, but there is no email, SMS, or paging path to the
+Root Authority — `POST /1.0/stub-integrity` only ever writes to Supabase.
+Confirmed empirically: this repo has no Resend integration at all (zero
+matches for `resend` in the codebase as of this note). Closing it needs
+(1) a real domain for this project — it currently deploys only to
+`huuid-resolver.vercel.app`, and Section 00-B of the governing CLAUDE.md
+flags bare `*.vercel.app` domains as breaking Resend SPF/DKIM alignment
+— and (2) confirmation `RESEND_API_KEY` is live in this project's Vercel
+Production scope. Both are operator decisions, not pure code changes.
+Until this is closed, treat this table as something that must be
+queried manually, not something that pages anyone.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -810,12 +827,15 @@ resolution outcomes** above for the measured before/after.
 
 **Stub Integrity (Month 4), specifically:**
 
-- Immutability trigger on `huuid_stub_integrity_log` (unlike `huuid_audit_log`
-  / `huuid_bg_audit_log`) — currently an operational/diagnostic log, not an
-  evidentiary one
-- Alerting/paging the Root Authority on a real violation (rows are logged
-  to Supabase only; no notification path to a human yet)
+- **PRE-PILOT BLOCKER — email/SMS/paging to the Root Authority on a
+  violation or override.** Rows are logged to Supabase only; nothing
+  notifies a human. Needs a real domain for this project (currently bare
+  `*.vercel.app`, which breaks Resend SPF/DKIM per CLAUDE.md §00-B) and
+  confirmation `RESEND_API_KEY` is live in Production. Operator decision,
+  not a code gap — cannot be closed by Claude Code alone. See the schema
+  section above for the full explanation.
 
-Signature verification on `POST /1.0/stub-integrity` is **closed**, not
+Both signature verification on `POST /1.0/stub-integrity` and the
+immutability trigger on `huuid_stub_integrity_log` are **closed**, not
 deferred — see **Stub Integrity Alert endpoint** above and
 `huuid-emr-stub/docs/TECHNICAL-DECISIONS.md` §11.
