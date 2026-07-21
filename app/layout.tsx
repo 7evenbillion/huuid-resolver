@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'HUUID Resolver',
+  title: 'HUUID — Health Unique Universal ID',
   description:
-    'W3C DID resolution engine for did:huuid — health identity infrastructure. Pointers only; medical data never touches this server.',
+    'A neutral protocol for trusted healthcare identity. W3C-registered did:huuid resolution infrastructure for Ghana and beyond.',
 };
 
 export default function RootLayout({
@@ -13,9 +14,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: 'monospace', margin: 0, padding: 24 }}>
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

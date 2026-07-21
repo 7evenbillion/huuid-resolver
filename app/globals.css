@@ -1,0 +1,475 @@
+:root {
+  --navy: #0a1f33;
+  --navy-soft: #34445a;
+  --teal: #0f9d8c;
+  --teal-dark: #0b7d70;
+  --white: #ffffff;
+  --off-white: #f7f9fa;
+  --border: #e3e8eb;
+  --border-soft: #edf1f2;
+  --terminal-bg: #0b1215;
+  --terminal-green: #3ddc84;
+  --terminal-text: #d7e0e2;
+  --terminal-dim: #6b7c80;
+
+  --font-system:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', Consolas,
+    monospace;
+
+  --max-width: 1120px;
+  --radius: 6px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-system);
+  color: var(--navy);
+  background: var(--white);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+a {
+  color: inherit;
+}
+
+.container {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.section {
+  padding: 88px 0;
+}
+
+.section-alt {
+  background: var(--off-white);
+}
+
+.section-border-top {
+  border-top: 1px solid var(--border-soft);
+}
+
+.eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--teal-dark);
+  margin: 0 0 12px;
+}
+
+.section-title {
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 12px;
+  color: var(--navy);
+}
+
+.section-subtitle {
+  font-size: 17px;
+  color: var(--navy-soft);
+  margin: 0 0 48px;
+  max-width: 640px;
+}
+
+/* ---------- Hero ---------- */
+
+.hero {
+  padding: 96px 0 72px;
+  text-align: center;
+}
+
+.hero-logo {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--navy);
+  margin: 0;
+}
+
+.hero-declaration {
+  font-size: 16px;
+  color: var(--navy-soft);
+  margin: 10px 0 56px;
+}
+
+.hero-mission {
+  font-size: clamp(36px, 6vw, 60px);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+  color: var(--navy);
+}
+
+.hero-category {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--teal-dark);
+  margin: 28px 0 20px;
+}
+
+.hero-body {
+  font-size: 18px;
+  color: var(--navy-soft);
+  max-width: 480px;
+  margin: 0 auto 40px;
+}
+
+.btn {
+  display: inline-block;
+  font-family: var(--font-system);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 13px 28px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--navy);
+  color: var(--white);
+}
+
+.btn-primary:hover {
+  background: #142f4c;
+}
+
+.btn-primary:disabled {
+  background: var(--navy-soft);
+  cursor: default;
+}
+
+/* ---------- Resolver terminal ---------- */
+
+.resolver-shell {
+  display: grid;
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.resolver-input-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.resolver-input {
+  flex: 1 1 320px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--navy);
+  background: var(--white);
+}
+
+.resolver-input:focus {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+}
+
+.terminal {
+  background: var(--terminal-bg);
+  border-radius: 8px;
+  padding: 22px 24px;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  color: var(--terminal-text);
+  min-height: 64px;
+}
+
+.terminal-line {
+  margin: 0 0 8px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.terminal-line:last-child {
+  margin-bottom: 0;
+}
+
+.terminal-check {
+  color: var(--terminal-green);
+  font-weight: 700;
+}
+
+.terminal-idle {
+  color: var(--terminal-dim);
+}
+
+.terminal-duration {
+  color: var(--terminal-green);
+  margin-top: 14px;
+}
+
+.terminal-error {
+  color: #e0645a;
+}
+
+.resolver-json {
+  background: var(--terminal-bg);
+  border-radius: 8px;
+  padding: 20px 24px;
+  overflow-x: auto;
+}
+
+.resolver-json pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--terminal-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- Dashboard ---------- */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.dashboard-cell {
+  background: var(--white);
+  padding: 28px 24px;
+}
+
+.dashboard-value {
+  font-size: 30px;
+  font-weight: 650;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-label {
+  font-size: 13px;
+  color: var(--navy-soft);
+  margin-top: 6px;
+}
+
+.dashboard-footnote {
+  margin-top: 20px;
+  font-size: 14px;
+  color: var(--navy-soft);
+}
+
+/* ---------- World / footprint ---------- */
+
+.footprint-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.footprint-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  background: var(--white);
+}
+
+.footprint-country {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--navy);
+}
+
+.status-pill {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  border-radius: 100px;
+}
+
+.status-pill-pilot {
+  background: rgba(15, 157, 140, 0.12);
+  color: var(--teal-dark);
+}
+
+.status-pill-available {
+  background: var(--off-white);
+  color: var(--navy-soft);
+  border: 1px solid var(--border);
+}
+
+.network-graphic {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 40px;
+}
+
+/* ---------- Government columns ---------- */
+
+.gov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 40px;
+}
+
+.gov-heading {
+  font-size: 18px;
+  font-weight: 650;
+  color: var(--navy);
+  margin: 0 0 12px;
+}
+
+.gov-body {
+  font-size: 15px;
+  color: var(--navy-soft);
+  margin: 0;
+}
+
+/* ---------- Governance links ---------- */
+
+.governance-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.governance-list li {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.governance-list a {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 0;
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--navy);
+}
+
+.governance-list a:hover {
+  color: var(--teal-dark);
+}
+
+.governance-arrow {
+  color: var(--navy-soft);
+  font-size: 15px;
+}
+
+/* ---------- Four paths ---------- */
+
+.paths-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.path-cell {
+  background: var(--white);
+  padding: 32px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.path-role {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--teal-dark);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.path-desc {
+  font-size: 15px;
+  color: var(--navy-soft);
+  flex: 1;
+}
+
+.path-link {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--navy);
+  text-decoration: none;
+}
+
+.path-link:hover {
+  color: var(--teal-dark);
+}
+
+/* ---------- Standards ---------- */
+
+.standards-box {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  background: var(--off-white);
+  font-size: 15px;
+  color: var(--navy-soft);
+  max-width: 720px;
+}
+
+.standards-box strong {
+  color: var(--navy);
+}
+
+/* ---------- Footer ---------- */
+
+.footer {
+  padding: 48px 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.footer-text {
+  font-size: 13px;
+  color: var(--navy-soft);
+  margin: 0 0 8px;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 640px) {
+  .section {
+    padding: 56px 0;
+  }
+  .hero {
+    padding: 56px 0 48px;
+  }
+  .hero-mission {
+    font-size: 34px;
+  }
+  .gov-grid,
+  .footprint-grid {
+    gap: 24px;
+  }
+}
