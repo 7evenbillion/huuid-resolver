@@ -284,31 +284,70 @@ human-readable.
 | 404 | `notFound` | HUUID does not exist. Identical response time to `410` (150ms floor) — no enumeration signal. | Do not retry. |
 | 409 | `duplicateRequest` | `X-HUUID-Request-ID` reused (enforced indefinitely — see **Duplicate request detection**). No audit row is written for this outcome. | Generate a new UUID. |
 | 410 | `deactivated` | HUUID exists but is revoked or suspended | Patient must re-enroll at the issuing node. |
-| 429 | `rateLimitExceeded` | >50 requests/hour (rolling) for Treatment/Administrative, this facility | `Retry-After` header set to seconds until the oldest in-window request ages out. Audited. |
+| 429 | `rateLimitExceeded` | >50 requests/hour (rolling) for this facility, in THIS purposeCode's own bucket (Treatment and Administrative counted independently, Month 6) | `Retry-After` header set to seconds until the oldest in-window request in this purpose's bucket ages out. Audited. |
 | 500 | `internalError` | **Audit write failed — resolution aborted.** Also raised on DB lookup failure. | Retry later; the resolver refuses to resolve unaudited. |
 
 ### Rate limits
 
+Each purposeCode maintains an independent rolling counter. Quotas do not
+share budget across access categories. This design reflects the
+protocol's international governance model where each access category
+carries distinct legal accountability.
+
 | Purpose | Limit | Current build behaviour |
 |---|---|---|
-| Treatment | 50/hour (rolling), per facility | **Enforced** ✅ (Month 5) |
-| Administrative | 50/hour (rolling), per facility | **Enforced** ✅ (Month 5) — see note below: shares Treatment's counter |
-| Research | 0 — blocked | **`403 forbidden` immediately** ✅ |
-| Emergency | Unlimited (Break-Glass rules apply) | Audited with `break_glass: true` ✅ |
+| Treatment | 50/hour (rolling), per facility, own independent counter | **Enforced** ✅ (Month 5, made independent Month 6) |
+| Administrative | 50/hour (rolling), per facility, own independent counter | **Enforced** ✅ (Month 5, made independent Month 6) |
+| Research | 0 — blocked before ever reaching a counter | **`403 forbidden` immediately** ✅ |
+| Emergency | Unlimited — still logged (duplicate-ID detection) into its own bucket, but nothing ever checks a ceiling against it | Audited with `break_glass: true` ✅ |
 
-**Implementation (Month 5):** reuses `huuid_request_log` — already tracking
-`facility_did`/`logged_at` per request for duplicate-ID detection — rather
-than a new table. Gated to `Treatment`/`Administrative` only — `Research`
-is already blocked earlier in the pipeline, `Emergency` is explicitly
-unlimited per the table above.
+**Implementation (Month 5, made per-purposeCode Month 6):** reuses
+`huuid_request_log` — already tracking `facility_did`/`logged_at` per
+request for duplicate-ID detection — rather than a new table.
+`huuid_request_log` gained a `purpose_code` column (migration 011); the
+count that `increment_resolution_rate_limit` computes is scoped to
+`(facility_did, purpose_code)` together, not `facility_did` alone. Gated
+to `Treatment`/`Administrative` only — `Research` is blocked before the
+counter is ever called (Step 4, moved ahead of the counter this month —
+see below), `Emergency` is recorded (for duplicate detection) but
+explicitly unlimited per the table above.
 
-**Open question, not resolved by this implementation:** the spec lists
-Treatment and Administrative as separate rows with the same limit, which
-could mean either a shared 50/hour pool per facility (what's built) or two
-independent 50/hour pools. Every test exercising this limit — Month 5's
-red-team Attack 4, Load Tests 1-2 — only used Treatment, so this ambiguity
-doesn't affect any verified behavior, but it's a real product decision for
-Root Authority, not something resolved by this build.
+**Formerly an open question, now resolved (Month 6):** Month 5 shipped
+Treatment and Administrative sharing ONE 50/hour pool per facility,
+flagging explicitly that the spec's table (listing them as separate rows)
+could mean either a shared or independent pool and that this was a real
+product decision for Root Authority, not silently resolved. The decision:
+**independent**. Verified for real — 50 Treatment and 50 Administrative
+requests fired *concurrently* (`Promise.all`, interleaved) against one
+fresh facility: 50/50 succeeded in each bucket with zero cross-
+contamination; a 51st Treatment request then got `429` on its own
+quota, and a 51st Administrative request independently got `429` on
+*its* own quota. An Emergency request fired after both quotas were
+already exhausted still succeeded (`200`) — proving Emergency shares no
+bucket with either. A Research request under the same exhausted state
+returned `403`, not `429` — proving it never reached any counter at all
+(confirmed directly: `huuid_request_log` has zero rows with
+`purpose_code = 'Research'` for that facility, full stop).
+
+**Real behavior change, stated plainly:** moving the Research block ahead
+of the counter call means a Research request that happens to reuse an
+already-used `X-HUUID-Request-ID` now returns `403` instead of `409` —
+since Research is unconditionally rejected regardless of duplicate
+status, checking duplicate-ness for it first was never meaningful, and
+the reorder makes "Research never reaches the counter" literally true
+rather than true only some of the time.
+
+**Lock strategy note (migration 011):** the count-then-insert atomicity
+migration 010 fixed (see below) still holds per-purposeCode, but the lock
+itself changed from a row lock on the facility (`SELECT ... FOR UPDATE`
+on `huuid_facilities`, which would have serialized Treatment and
+Administrative through the same lock even though they now count into
+independent buckets — defeating the point) to a Postgres advisory
+transaction lock keyed on `facility_did + purpose_code` together
+(`pg_advisory_xact_lock(hashtextextended(...))`). Concurrent requests for
+the same facility but *different* purposes no longer contend with each
+other at all; concurrent requests for the same facility *and* the same
+purpose still fully serialize, exactly as migration 010 required.
 
 **CLOSED — race condition under high burst concurrency (migration 010).**
 Originally: the count-then-insert was two independent round trips (a plain
@@ -759,6 +798,25 @@ Includes Break-Glass table counts (Month 3):
 }
 ```
 
+**Optional elevated view (Month 6).** An `Authorization: Bearer {JWT}`
+header is accepted but never required — the base response above is
+identical either way for every caller except one. If the JWT verifies
+(same `verifyFacilityJWT()` path every facility JWT goes through — no
+special signature handling) as the Root Authority's own facility DID
+(`ROOT_AUTHORITY_FACILITY_DID`, `lib/root-authority.ts`, shared with the
+audit endpoint below so the two never drift onto different constants),
+the response gains a `perPurposeCode` field: system-wide, cross-facility
+request counts for the trailing 60-minute window, one number per
+purposeCode (`Treatment`, `Administrative`, `Emergency`, `Research`).
+`Research` will always read `0` — it is rejected before ever reaching the
+counter, so a non-zero value there would itself be a sign something is
+broken, not just a number to report. The field is *absent*, not
+`null`/empty, for every other caller — its presence alone is a signal.
+Verified for real: an unauthenticated request and a request bearing an
+*ordinary* (non-root) facility's valid JWT both correctly omit the field;
+a request with a genuine Root Authority JWT returns real counts matching
+a direct database query.
+
 ### `GET /debug/resolver`
 
 Temporary raw-data debug page (Build Rule 4). Shows live JWT verification
@@ -999,16 +1057,22 @@ test facility's rolling counters:
 | `did:huuid:gh:node-loadtest-002` | Attack 4 (bulk harvest), Load Test 3 (Break-Glass concurrency) | Generated to a local scratch file during testing, **deleted afterward — not recoverable** |
 | `did:huuid:gh:node-loadtest-003` | Load Test 1 (sustained load) | Same — deleted |
 | `did:huuid:gh:node-loadtest-004` | Load Test 2 (paced rate-limit test) | Same — deleted |
-| `did:huuid:gh:root-authority-hpwg` | The Root Authority's own facility identity — used both as an ordinary querying facility in the NHIA fraud demo and to exercise `GET /1.0/audit/{huuid}`'s cross-facility scope | Generated to a local scratch file, **deleted afterward — not recoverable** |
+| `did:huuid:gh:root-authority-hpwg` | The Root Authority's own facility identity — used both as an ordinary querying facility in the NHIA fraud demo and to exercise `GET /1.0/audit/{huuid}`'s and `GET /api/health`'s cross-facility/elevated scope | **Re-keyed Month 6** (its `public_key_multibase` in `huuid_facilities` no longer matches the Month 5 key) to actually exercise `/api/health`'s new elevated view end-to-end. Generated to a local scratch file for that verification and **deleted again afterward — not recoverable, same pattern as Month 5.** |
 
 These rows are harmless to leave in place (no PII, `certificate_status:
 active`, just a public key with no way to sign anything against it
-anymore) and are left as a record of what Month 5 actually tested against,
-rather than being deleted and losing that provenance. `did:huuid:gh:root-
-authority-hpwg` specifically should be re-keyed with a real, retained
-private key before it is used for anything beyond testing — see **GET
-/1.0/audit/{huuid}** above for what identity currently grants elevated
-access.
+anymore) and are left as a record of what this build actually tested
+against, rather than being deleted and losing that provenance.
+`did:huuid:gh:root-authority-hpwg` specifically **still needs a real,
+retained private key** before it is used for anything beyond testing —
+re-keying it twice now to run a verification and discarding the key both
+times is not a substitute for deciding where this identity's actual
+production key material should live (a secrets manager, an HSM, whatever
+the Root Authority's own operational security requires) and who holds it.
+That decision is Root Authority's to make, not something this build can
+resolve by picking somewhere to store a key unprompted — see **GET
+/1.0/audit/{huuid}** and **GET /api/health** above for what this identity
+currently grants.
 
 ---
 
@@ -1030,11 +1094,14 @@ access.
 - `GET /1.0/audit/my-records` (patient self-access) — still not built;
   `GET /1.0/audit/{huuid}` (facility- and Root-Authority-scoped) shipped
   this month, but the patient-facing endpoint is a separate piece of work.
-- Root Authority identity (`did:huuid:gh:root-authority-hpwg`) currently
-  has a private key that was generated to a local scratch file during
-  testing and deliberately deleted afterward — see **Month 5 test
-  facilities** above. Needs a real, retained keypair before this identity
-  is used for anything beyond testing.
+- Root Authority identity (`did:huuid:gh:root-authority-hpwg`) still has
+  no real, retained private key — re-keyed and deleted again in Month 6
+  purely to verify `/api/health`'s new elevated view for real (see
+  **Month 5 test facilities** above, now updated). This has happened
+  twice now; deciding where this identity's actual key material should
+  live is Root Authority's call, not something to keep deferring by
+  re-generating throwaway keys each time a new elevated-access feature
+  needs testing.
 
 **QR verification (Month 4), specifically:**
 
