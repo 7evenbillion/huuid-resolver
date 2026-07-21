@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase-server';
 import { verifyFacilityJWT } from '@/lib/facility-jwt';
+import { ROOT_AUTHORITY_FACILITY_DID } from '@/lib/root-authority';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -19,6 +20,8 @@ export const runtime = 'nodejs';
  * signature path, only a special-cased QUERY SCOPE once identity is
  * established. When that DID is the requester, no facility filter is
  * applied: it sees every record for this HUUID across all facilities.
+ * ROOT_AUTHORITY_FACILITY_DID now lives in lib/root-authority.ts (Month 6)
+ * so /api/health's own elevated view uses the identical constant.
  *
  * Not rate-limited and not duplicate-request-id-checked — this is a read of
  * one's own audit trail, not a resolution event, and neither constraint is
@@ -26,7 +29,6 @@ export const runtime = 'nodejs';
  * inventing a requirement, not honoring one.
  */
 
-const ROOT_AUTHORITY_FACILITY_DID = 'did:huuid:gh:root-authority-hpwg';
 const MAX_RECORDS = 50;
 
 function errorBody(error: string, errorMessage: string) {

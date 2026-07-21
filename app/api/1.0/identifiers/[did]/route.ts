@@ -321,46 +321,69 @@ export async function GET(
     );
   }
 
-  // ── Step 4/4.5 combined, Month 5 atomic fix: duplicate X-HUUID-Request-ID
-  // detection AND rate limiting for Treatment/Administrative, in one
-  // Postgres function call (migration 010, increment_resolution_rate_limit).
+  // ── Step 4: Research purpose is blocked until Root Authority approval.
+  // Month 6: moved ahead of the duplicate/rate-limit RPC call (formerly
+  // Step 5, after it) so a Research request never reaches the counter at
+  // all — it is unconditionally rejected regardless of duplicate-ID status,
+  // matching "Research: 0, blocked at route level, never reaches counter."
+  // Real, deliberate behavior change from before: a Research request that
+  // happens to reuse an already-used request-id now gets 403 (forbidden)
+  // rather than 409 (duplicateRequest) — since Research is unconditionally
+  // rejected, checking its duplicate status first was never meaningful. ──
+  if (purposeHeader === 'Research') {
+    const auditId = await audit('forbidden');
+    if (!auditId) {
+      return NextResponse.json(
+        errorBody('internalError', 'Audit write failed. Resolution aborted.', requestId),
+        { status: 500, headers: baseHeaders(null) }
+      );
+    }
+    return NextResponse.json(
+      errorBody(
+        'forbidden',
+        'Research purposeCode is blocked pending Root Authority (HUUID Protocol Working Group) approval.',
+        requestId
+      ),
+      { status: 403, headers: baseHeaders(auditId) }
+    );
+  }
+
+  // ── Step 4.5, Month 6: separate rate-limit counters per purposeCode.
+  // International protocol design decision: each purposeCode is a legally
+  // distinct access category with independent budget, independent audit
+  // trail, and independent accountability. Treatment and Administrative no
+  // longer share one 50/hour counter per facility (Month 5's open
+  // question) — each gets its own, scoped to (facility_did, purpose_code)
+  // via a new column on huuid_request_log (migration 011).
   //
-  // Why this replaced two separate round trips: the original Step 4
-  // (upsert) + Step 4.5 (a plain SELECT COUNT afterward) were two
-  // independent statements. Under concurrent load this was confirmed to
-  // race — a 100-concurrent burst produced only 42 successes instead of
-  // 50, because many requests could each insert their own row and then
-  // read the count *before* seeing each other's inserts. Wrapping both
-  // statements in a single RPC call does NOT by itself fix that; the
-  // function additionally takes a row lock on the requesting facility
-  // (`SELECT ... FOR UPDATE` on huuid_facilities) so concurrent callers
-  // for the SAME facility serialize through the count, one at a time, in
-  // commit order. Different facilities are unaffected — the lock is
-  // per-row. See migration 010's own comment for the full trade-off note
-  // (this does reduce a single facility's achievable burst throughput, in
-  // exchange for the count being correct).
+  // increment_resolution_rate_limit still does duplicate X-HUUID-Request-ID
+  // detection AND rate-limit counting in one Postgres function call
+  // (migration 010's atomic fix, unchanged in spirit) — but the lock
+  // strategy changed: rather than a row lock on huuid_facilities (which
+  // would serialize ALL purposes for a facility through one lock even
+  // though they now count into independent buckets), migration 011 uses a
+  // Postgres advisory transaction lock keyed on facility_did + purpose_code
+  // together. Concurrent Treatment and Administrative requests for the SAME
+  // facility no longer contend with each other at all; concurrent requests
+  // for the SAME facility AND SAME purpose still fully serialize, exactly
+  // as migration 010 required. See migration 011's own comment for why.
   //
-  // Returns -1 for a duplicate request_id (409, no audit row, matching the
-  // original behavior exactly) or the new count for this facility in the
-  // trailing 60 minutes, INCLUDING the request just recorded — request #51
-  // brings the count to 51 and is rejected; 1-50 pass. Always records
-  // regardless of purpose (duplicate detection applies to every purpose,
-  // as before); only Treatment/Administrative ENFORCE the count as a
-  // limit — Research is blocked outright at Step 5 below (never reaches
-  // here in practice) and Emergency is explicitly unlimited per Section 5.
-  //
-  // Scope decision, not yet confirmed by Root Authority: Treatment and
-  // Administrative share ONE 50/hour counter per facility here, rather than
-  // each purpose code getting its own independent 50. The spec's table
-  // lists them as separate rows with the same limit, which could mean
-  // either. Every test in Month 5's stress-testing brief only exercises
-  // Treatment, so this doesn't affect any DoD item, but it's a real
-  // ambiguity — flagged on the pre-pilot checklist, not silently resolved.
+  // Returns -1 for a duplicate request_id (409, no audit row, unchanged) or
+  // the new count for this (facility, purposeCode) pair in the trailing 60
+  // minutes, INCLUDING the request just recorded — request #51 within a
+  // SINGLE purpose's bucket brings that bucket's count to 51 and is
+  // rejected; the OTHER purpose's bucket is completely unaffected. Always
+  // records regardless of purpose (duplicate detection applies to every
+  // purpose that reaches this point); only Treatment/Administrative
+  // ENFORCE the count as a limit — Emergency is explicitly unlimited per
+  // Section 5 (still recorded here for duplicate-detection purposes, into
+  // its own 'Emergency' bucket that nothing ever checks a ceiling against).
   let requestCount: number;
   try {
     const { data, error: rpcError } = await getServiceClient().rpc('increment_resolution_rate_limit', {
       p_facility_did: facility as string,
       p_request_id: requestId,
+      p_purpose_code: purposeHeader as string,
     });
     if (rpcError) throw new Error(rpcError.message);
     requestCount = data as number;
@@ -393,10 +416,14 @@ export async function GET(
   const RATE_LIMIT_MAX = 50;
   if ((purposeHeader === 'Treatment' || purposeHeader === 'Administrative') && requestCount > RATE_LIMIT_MAX) {
     const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+    // Retry-After must be scoped to this purpose's own bucket too — the
+    // oldest row in the OTHER purpose's window is irrelevant to when THIS
+    // purpose's count will drop.
     const { data: oldestInWindow } = await getServiceClient()
       .from('huuid_request_log')
       .select('logged_at')
       .eq('facility_did', facility as string)
+      .eq('purpose_code', purposeHeader as string)
       .gte('logged_at', new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString())
       .order('logged_at', { ascending: true })
       .limit(1)
@@ -422,25 +449,6 @@ export async function GET(
         requestId
       ),
       { status: 429, headers: { ...baseHeaders(auditId), 'Retry-After': String(retryAfterSeconds) } }
-    );
-  }
-
-  // ── Step 5: Research purpose is blocked until Root Authority approval ──
-  if (purposeHeader === 'Research') {
-    const auditId = await audit('forbidden');
-    if (!auditId) {
-      return NextResponse.json(
-        errorBody('internalError', 'Audit write failed. Resolution aborted.', requestId),
-        { status: 500, headers: baseHeaders(null) }
-      );
-    }
-    return NextResponse.json(
-      errorBody(
-        'forbidden',
-        'Research purposeCode is blocked pending Root Authority (HUUID Protocol Working Group) approval.',
-        requestId
-      ),
-      { status: 403, headers: baseHeaders(auditId) }
     );
   }
 
