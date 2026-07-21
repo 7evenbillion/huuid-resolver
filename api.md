@@ -298,11 +298,7 @@ human-readable.
 
 **Implementation (Month 5):** reuses `huuid_request_log` — already tracking
 `facility_did`/`logged_at` per request for duplicate-ID detection — rather
-than a new table. The duplicate-detection upsert (Step 4) writes the
-current request's row before the rate-limit check runs (Step 4.5), so a
-single `COUNT` of this facility's rows in the trailing 60 minutes naturally
-includes the request being processed: the 51st request brings the count to
-51 and is rejected. Gated to `Treatment`/`Administrative` only — `Research`
+than a new table. Gated to `Treatment`/`Administrative` only — `Research`
 is already blocked earlier in the pipeline, `Emergency` is explicitly
 unlimited per the table above.
 
@@ -314,29 +310,43 @@ red-team Attack 4, Load Tests 1-2 — only used Treatment, so this ambiguity
 doesn't affect any verified behavior, but it's a real product decision for
 Root Authority, not something resolved by this build.
 
-**Real finding, Month 5 load testing — race condition under high burst
-concurrency, not a security bypass:** at 100 concurrent connections, a
-single test run against a facility with zero prior requests produced only
-42 successful (`200`) resolutions before the limiter engaged, not a clean
-50 — confirmed via `huuid_audit_log` (42 `success`, 2817
-`rateLimitExceeded` out of 2859 total), not a client-side measurement
-artifact. Root cause: the count-then-check is not atomic with the insert.
-Under a tight concurrent burst, many requests can each insert their own
-row and then read the count *before* seeing each other's inserts, so a
-batch larger than the true "first 50" can all observe a count already over
-50. At a moderate, paced rate (one request per ~300ms, Load Test 2's
-literal spec) the same code produced an exact 50/150 split with zero
-discrepancy — the race only manifests under simultaneous high-concurrency
-bursts. **Important: this makes the limiter conservative, not permissive**
-— in the observed run, *fewer* legitimate requests succeeded than the
-nominal 50, never more; no attacker can exploit this race to exceed the
-intended budget. Tracked on the pre-pilot checklist as a fairness/precision
-gap (some legitimate concurrent requests can be incorrectly rejected), not
-a security gap. Fix: make the count-and-insert atomic — e.g. a Postgres
-function using `SELECT ... FOR UPDATE` on a per-facility counter row, or a
-single `INSERT ... RETURNING count` pattern — applied to both this limiter
-and Break-Glass's (`huuid_bg_rate_limit`, same structural pattern, see
-below).
+**CLOSED — race condition under high burst concurrency (migration 010).**
+Originally: the count-then-insert was two independent round trips (a plain
+SELECT COUNT, then a separate INSERT). At 100 concurrent connections, one
+test run against a facility with zero prior requests produced only 42
+successful (`200`) resolutions before the limiter engaged, not a clean
+50 — confirmed via `huuid_audit_log`, not a client-side artifact.
+Root cause: many concurrent requests could each insert their own row and
+then read the count *before* seeing each other's inserts, so a batch
+larger than the true "first 50" could all observe a count already over 50.
+This never let an attacker exceed the intended budget — the limiter was
+conservative, not permissive, delivering *fewer* legitimate successes than
+the nominal 50, never more — but it was real and confirmed, not
+theoretical.
+
+**The fix is not "wrap the same two statements in one RPC call."** That
+alone does not make concurrent *calls* to a function atomic with each
+other — Postgres transactions still run independently unless something
+forces them to serialize. `increment_resolution_rate_limit` (migration
+010) additionally takes an explicit row lock (`SELECT ... FOR UPDATE` on
+the requesting facility's row in `huuid_facilities`) before counting, so
+concurrent callers for the *same* facility queue through the count one at
+a time, in commit order — each one's count is guaranteed to reflect every
+prior committed request for that facility. Different facilities are
+unaffected (the lock is per-row), and plain reads elsewhere (the JWT
+public-key lookup) are never blocked by it (row locks only block other
+`FOR UPDATE`/`FOR SHARE`/`UPDATE`/`DELETE` on the same row).
+
+**Reverified after the fix, same 100-concurrent-connection scenario, fresh
+facility:** exactly 50 successes, 2823 `rateLimitExceeded`, 0 `5xx`
+errors — confirmed via `huuid_audit_log`. **Trade-off, stated plainly:**
+the fix serializes concurrent requests from the *same* facility through
+the lock — median/p99 latency were comparable to the unfixed version, but
+the max observed latency rose (17.8s vs 8.3s in the earlier run) as
+concurrent same-facility requests now queue at the DB layer instead of
+racing. Requests from different facilities remain fully parallel. This is
+the correct trade-off — precision under burst load was exactly the
+problem — but it is a real cost, not a free fix.
 
 Rate limits are per facility DID, not per IP. More than 10 Emergency resolutions
 from one facility in 24 hours triggers Root Authority review (Break-Glass spec).
@@ -492,33 +502,50 @@ deterministically true rather than mutually exclusive.
 | **10th** | **Still processed — returns 200.** Patient safety overrides security controls; this is non-negotiable. A `huuid_facility_suspensions` row is opened (`active: true`, `reason: 'bg_rate_limit_exceeded'`) as part of the same request. |
 | 11th+ | `429 rateLimitExceeded` until Root Authority (HUUID Protocol Working Group) reinstates. |
 
-**Real finding, Month 5 load testing — the suspension row can silently
-never get created under true concurrency, even though the 429 enforcement
-itself still holds.** Load Test 3 fired 10 genuinely simultaneous
-Break-Glass requests (`Promise.all`, not sequential) against a facility
-with zero prior Break-Glass history: all 10 correctly returned `200`, and
-an 11th fired afterward correctly returned `429`. But
-`huuid_facility_suspensions` had **zero** rows for that facility —
-confirmed by direct query, not inferred. Root cause: the "is this the
-10th request" check (`newCount === SUSPEND_AT_COUNT`) is computed per
-request from a `priorCount` read *before* that request's own insert lands.
-Under true concurrency all 10 requests can each read a low `priorCount`
-(0 through a few) before any of the others' inserts are visible, so
-**none** of them individually computes `newCount === 10` — the branch that
-opens the suspension row and (per §5's table) is meant to trigger a
-Root Authority critical alert never fires for the burst as a whole. The
-11th request still correctly returns `429`, because *that* check
-(`priorCount >= 10`) runs after all 10 inserts are already durably
-committed and visible — enforcement holds, but the record of *why*, and
-the alert path hanging off it, is silently skipped. This is the same
-structural race as the standard-resolution finding above (count read is
-not atomic with the triggering insert), with a more serious consequence
-here: not unfair rejection, but a missing legal/audit record and a missing
-Root Authority alert for a genuine mass-Break-Glass-abuse burst — exactly
+**CLOSED — the suspension row could silently never get created under true
+concurrency, even though 429 enforcement itself always held (migration
+010).** Load Test 3 fired 10 genuinely simultaneous Break-Glass requests
+(`Promise.all`, not sequential) against a facility with zero prior
+Break-Glass history: all 10 correctly returned `200`, and an 11th fired
+afterward correctly returned `429`. But `huuid_facility_suspensions` had
+**zero** rows for that facility — confirmed by direct query, not inferred.
+Root cause: the "is this the 10th request" check was computed per request
+from a `priorCount` read *before* that request's own insert landed. Under
+true concurrency all 10 requests could each read a low `priorCount` before
+any of the others' inserts were visible, so **none** of them individually
+computed "I am the 10th" — the branch that opens the suspension row, and
+(per §5's table) the Root Authority critical alert meant to hang off it,
+never fired for the burst as a whole. The numeric 429 ceiling still held
+(that check runs after all 10 inserts are durably committed), but the
+record of *why*, and the alert path behind it, were silently skipped —
+worse than unfair rejection: a missing legal/audit record and a missing
+Root Authority alert for a genuine mass-Break-Glass-abuse burst, exactly
 the scenario Section 1's "criminal liability" framing cares most about
-catching. Tracked as a pre-pilot item alongside the standard-resolution
-race; the same atomic count-and-insert fix (a Postgres function with row
-locking) closes both, since both use the identical structural pattern.
+catching.
+
+**Fix:** `increment_bg_rate_limit` (migration 010) takes a row lock on the
+facility before counting — same shape and same reasoning as the standard-
+resolution fix above; see that section for why a plain "insert+count in
+one RPC call" would not have been sufficient without the lock. The
+existing pre-fix count check (former Step 3) is kept, but demoted to a
+fast-path pre-filter only — cheap rejection before the expensive signature
+verification in Step 4, safe to leave non-atomic because it can only ever
+be overly *permissive* under a race (an in-flight sibling's row isn't
+counted yet), never overly restrictive. The lock-protected RPC call, made
+only after signature verification succeeds — preserving the original
+behavior where an invalid-signature request never consumed rate-limit
+budget — is the sole authoritative decision.
+
+**Reverified after the fix, same 10-truly-concurrent-request scenario,
+fresh facility:** all 10 → `200`, 11th → `429`, **exactly one**
+`huuid_facility_suspensions` row created (`active: true`), and querying
+`huuid_bg_rate_limit` ordered by `triggered_at` shows all 10 rows in
+correct chronological order with `suspended: true` on exactly the
+10th-by-commit-order row — confirming the lock genuinely serialized
+the burst rather than merely happening to produce the right count.
+Latency roughly doubled (~1.4s → ~3.0s per request) under the same 10-way
+burst, the expected cost of serializing same-facility concurrent requests
+through the lock.
 
 ### Patient notification (60-second SLA)
 
@@ -993,20 +1020,13 @@ access.
 
 **Security stress testing (Month 5), specifically:**
 
-- **Atomic rate-limit counting.** Both `huuid_request_log`-based standard-
-  resolution rate limiting and `huuid_bg_rate_limit`-based Break-Glass rate
-  limiting use a count-then-insert pattern that is not atomic. Confirmed
-  under real concurrent load (see **Rate limits** and the Break-Glass rate
-  limit table above for the two specific findings): the enforcement ceiling
-  itself always held in testing — no attacker got more than the intended
-  budget in either system — but (a) standard resolution can under-deliver
-  legitimate successes under a high-concurrency burst, and (b) Break-Glass
-  can silently skip creating the `huuid_facility_suspensions` row (and
-  therefore the Root Authority alert hanging off it) for a burst that hits
-  exactly the suspension threshold concurrently. Fix: a Postgres function
-  using row locking (`SELECT ... FOR UPDATE` on a per-facility counter, or
-  equivalent) so the read-count-then-decide step is atomic with the write,
-  applied to both call sites.
+- ~~Atomic rate-limit counting~~ — **CLOSED**, migration 010
+  (`increment_bg_rate_limit`, `increment_resolution_rate_limit`), both
+  using row-level locking (`SELECT ... FOR UPDATE` on the facility's own
+  row) to genuinely serialize concurrent callers, not just move the same
+  non-atomic statements into a stored function. Reverified against the
+  exact scenarios that found the original race — see **Rate limits** and
+  the Break-Glass rate limit section above for full before/after evidence.
 - `GET /1.0/audit/my-records` (patient self-access) — still not built;
   `GET /1.0/audit/{huuid}` (facility- and Root-Authority-scoped) shipped
   this month, but the patient-facing endpoint is a separate piece of work.
