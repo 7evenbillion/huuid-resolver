@@ -1,11 +1,13 @@
-# HUUID Resolver — Session Handoff
+# HUUID Resolver + EMR Stub — Session Handoff
 
 Everything a new Claude Code session needs to continue this build without
-losing context. Read this file in full before touching code.
+losing context. Read this file in full before touching code or citing any
+fact from it externally.
 
-> **Two flagged discrepancies — resolve before citing either fact externally.**
-> See § 13 at the end of this document. Do not silently pick one side of
-> either discrepancy without checking with the operator first.
+> **One flagged discrepancy, carried forward from the previous handoff —
+> resolve before citing externally.** See § 15. Do not cite the W3C PR
+> merge date in the Month 6 government pitch update without confirming it
+> against GitHub directly first.
 
 ---
 
@@ -13,222 +15,271 @@ losing context. Read this file in full before touching code.
 
 | | |
 |---|---|
-| Project | HUUID Resolver |
-| Production URL | https://huuid-resolver.vercel.app |
-| GitHub | https://github.com/7evenbillion/huuid-resolver |
-| W3C | `did:huuid` — DID Extensions PR #722 (see § 13 — merge date conflict) |
+| Project | HUUID Resolver + EMR Stub |
+| Resolver | https://huuid-resolver.vercel.app |
+| Resolver GitHub | github.com/7evenbillion/huuid-resolver |
+| Stub GitHub | github.com/7evenbillion/huuid-emr-stub |
+| W3C | `did:huuid` — DID Extensions PR #722, stated as MERGED July 2026 — **not independently verified by any Claude Code session to date, see § 15** |
 | Root Authority | HUUID Protocol Working Group |
 | Contact | josephtdnarnor@gmail.com |
-| Stack | Next.js 14 (App Router, TypeScript strict), Supabase (Postgres), Vercel |
-| Region | Vercel `cdg1` (Paris) · Supabase `eu-west-1` (Ireland) — co-located deliberately, see § 7 |
-| Repo root | `C:\2026\Claude Projects 2026\HUUID\huuid-resolver` — an older, stale scaffold also exists at `C:\2026\Claude Projects 2026\huuid-resolver`; do not build there |
-| Spec `.docx` files | One level up, in `C:\2026\Claude Projects 2026\HUUID\` |
-| Supabase project | Shared Cedimaker ecosystem project, named **"rewire"** (id `vqkkpydhfkbvaidmuqdi`) — despite the name, hosts ~30 prefixed apps. Not a HUUID-dedicated project. |
+| Vercel region | `cdg1` (Paris) |
+| Supabase region | `eu-west-1` (Ireland) — co-located with Vercel deliberately, a measured fix for a real production timing side-channel (Month 2); do not decouple without re-measuring 404-vs-410 timing |
+| Supabase project | Shared Cedimaker ecosystem project "rewire" (`vqkkpydhfkbvaidmuqdi`) — hosts ~30 prefixed apps, not HUUID-dedicated |
 | Vercel project | `huuid-resolver`, projectId `prj_hrD2jvIZUg5wmshJUMsNdOufB37G`, teamId `team_K4PbaqkmTIdiuQRwQz4A7OWz` |
+| Resolver repo root | `C:\2026\Claude Projects 2026\HUUID\huuid-resolver` |
+| Stub repo root | `C:\2026\Claude Projects 2026\HUUID\huuid-emr-stub` |
+| Spec `.docx` files | One level up, in `C:\2026\Claude Projects 2026\HUUID\` |
 
 ---
 
 ## 2. Completion state
 
-**Month 1 — COMPLETE.** W3C registration; protocol spec documents (v0.2,
-including the 7 corrections in `docs/CORRECTIONS.md` and the fuller
-`HUUID-CORRECTIONS-REGISTER-v0.2.docx` in the spec folder).
-
-**Month 2 — COMPLETE (Hours 31-80).**
-- Base resolver `GET /1.0/identifiers/{did}`
-- Ed25519 JWT verification (facility JWT, 300s window)
-- Facility certificate status enforcement (`huuid_facilities.certificate_status`)
-- Duplicate request detection — single-round-trip upsert pattern (`ON CONFLICT DO NOTHING RETURNING id`)
-- Constant-time 404/410 hardening — 150ms floor + region co-location; **43ms aggregate median** in production (target was <50ms), down from an erratic 27-182ms range when only DB round-trip count was reduced
-- Region co-location fix: `vercel.json` pins the deployment to `cdg1`
-
-**Month 3 — COMPLETE.** Break-Glass POST endpoint.
-- `POST /1.0/identifiers/{did}/break-glass` — the only POST endpoint in HUUID
-- ProviderJWT verification (120s window, `aud=.../break-glass`, verified against the facility key as a sanctioned Month 3 stand-in for per-clinician keys — see § 8)
-- Rate limit: 10/24h ceiling, 10th request still processed (patient safety), suspends from the 11th
-- Automatic suspension triggered at the 10th request
-- `huuid_bg_audit_log` (immutable — separate, stricter than the standard audit log)
-- `huuid_bg_notifications` (`queued` → `deferred` channel — no patient contact store yet)
-- `/debug/break-glass` page
-
-**Month 4 — NOT STARTED.** EMR Stub middleware.
-
-**Month 5 — NOT STARTED.** Security stress testing.
-
-**Month 6 — NOT STARTED.** Pilot readiness.
+- **Month 1 — COMPLETE.** W3C registration; protocol spec documents (v0.2).
+- **Month 2 — COMPLETE.** Base resolver, JWT verification, certificate status, duplicate detection, constant-time hardening, region co-location.
+- **Month 3 — COMPLETE.** Break-Glass POST endpoint, ProviderJWT, 10/24h rate limit + suspension, immutable Break-Glass audit log, patient notification queue.
+- **Month 4 — COMPLETE.** EMR Stub middleware — all five security layers (P1-P4 + QR, see § 8) plus resolution tier 4 (offline QR fallback).
+- **Month 5 — COMPLETE**, including separate rate-limit counters per purposeCode (migration 011, advisory locks). Also includes: standard-resolution rate limiting (migration 010's predecessor gap, closed), the atomic count-then-insert race-condition fix (migration 010, row locking), `GET /1.0/audit/{huuid}`, the NHIA fraud-detection demo, and the full 8-attack red-team simulation (8/8 blocked in production, one — bulk harvest — only after a real fix).
+- **Month 6 — NOT STARTED.**
 
 ---
 
-## 3. All database tables
+## 3. All live endpoints (resolver)
 
-| Table | Purpose |
+| Method | Route |
 |---|---|
-| `huuid_did_documents` | DID documents registry |
-| `huuid_audit_log` | Immutable standard-resolution audit trail |
+| GET | `/` |
+| GET | `/api/health` (optional Root Authority JWT unlocks `perPurposeCode` usage — Month 5) |
+| GET | `/1.0/identifiers/{did}` |
+| POST | `/1.0/identifiers/{did}/break-glass` |
+| GET | `/1.0/resolver-public-key` |
+| POST | `/1.0/stub-integrity` |
+| GET | `/1.0/audit/{huuid}` |
+| GET | `/debug/resolver` — temporary, remove before public launch |
+| GET | `/debug/break-glass` — temporary, remove before public launch |
+
+All `/1.0/...` paths are Next.js rewrites to `/api/1.0/...` handlers
+(`next.config.mjs`) — the W3C DID Resolution spec mandates the
+spec-compliant path at the root without a `/api` prefix.
+
+---
+
+## 4. All database tables
+
+| Table | Notes |
+|---|---|
+| `huuid_did_documents` | DID document registry |
+| `huuid_audit_log` | **Immutable** — standard-resolution audit trail |
 | `huuid_facilities` | Facility certificates and public keys |
-| `huuid_request_log` | Duplicate-request detection (standard resolver) |
-| `huuid_bg_audit_log` | Immutable Break-Glass audit trail |
+| `huuid_request_log` | Duplicate-request detection + per-`purpose_code` rate-limit counting (standard resolver) |
+| `huuid_bg_audit_log` | **Immutable** — Break-Glass audit trail, separate and stricter than the standard one |
 | `huuid_bg_rate_limit` | Break-Glass rate-limit tracking (10/24h) |
 | `huuid_bg_notifications` | Patient notification queue |
 | `huuid_facility_suspensions` | Break-Glass-specific facility suspension records |
+| `huuid_stub_integrity_log` | **Immutable** — Stub integrity-violation alerts, signature-verified before insert |
 
 All tables: RLS enabled, zero anon/authenticated access, explicit GRANT
-blocks (required post May 30 2026 Supabase change — see § 7).
+blocks (required post-May-30-2026 Supabase change — omitting them causes
+a silent permission-denied error, no exception thrown).
 
-## 4. Immutable tables (no UPDATE, no DELETE, ever)
+---
 
-- `huuid_audit_log`
-- `huuid_bg_audit_log`
-
-Both enforced two ways: RLS + GRANTs restrict `service_role` to
-SELECT/INSERT only, **and** a `BEFORE UPDATE`/`BEFORE DELETE` database
-trigger raises an exception even for a role that bypasses RLS. Belt and
-braces — do not remove either layer.
-
-## 5. All migration files
+## 5. All migrations, in order
 
 | File | Contents |
 |---|---|
 | `001_initial.sql` | `huuid_did_documents`, `huuid_audit_log`, test DID document seed |
-| `002_huuid_facilities.sql` | `huuid_facilities` table, seeded test facility (`did:huuid:gh:node-test-001`) |
+| `002_huuid_facilities.sql` | `huuid_facilities`, seeded test facility |
 | `003_request_log.sql` | `huuid_request_log` — duplicate-detection table |
-| `004_seed_revoked_test_document.sql` | Second test DID document, `status: revoked` — needed to test 404-vs-410 timing with a real revoked record |
-| `005_break_glass.sql` | All 4 Break-Glass tables — `huuid_bg_audit_log`, `huuid_bg_rate_limit`, `huuid_bg_notifications`, `huuid_facility_suspensions` |
+| `004_seed_revoked_test_document.sql` | Second test DID document, `status: revoked` |
+| `005_break_glass.sql` | All 4 Break-Glass tables |
+| `006_stub_integrity.sql` | `huuid_stub_integrity_log`, `POST /1.0/stub-integrity` |
+| `007_stub_integrity_sig.sql` | `signature_verified` column — closes the unsigned-alert gap |
+| `008_stub_integrity_override.sql` | `override` column — records `HUUID_INTEGRITY_OVERRIDE=1` usage |
+| `009_stub_integrity_immutable.sql` | Immutability trigger on `huuid_stub_integrity_log` |
+| `010_atomic_rate_limit.sql` | `increment_bg_rate_limit`, `increment_resolution_rate_limit` — row-locked atomic counters |
+| `011_separate_rate_limits.sql` | `purpose_code` column on `huuid_request_log`; `increment_resolution_rate_limit` rebuilt with advisory locks, scoped per (facility, purpose) |
 
-## 6. Environment variables (names only)
+**Filename note:** migrations 008 and 009 are named
+`008_stub_integrity_override.sql` and `009_stub_integrity_immutable.sql`
+on disk — confirmed against the actual `supabase/migrations/` directory
+while writing this handoff, since an earlier draft of this list used
+different names.
+
+---
+
+## 6. Architecture decisions — locked
+
+- GET for resolution only. POST for Break-Glass only — the only POST in the system.
+- Audit writes happen BEFORE the response, always. Audit write failure → `500`, no data returned, no exceptions.
+- Service role is server-side only, never shipped to the client.
+- `cache: 'no-store'` on ALL Supabase requests — a real bug fix (Next.js's automatic fetch caching was observed serving stale reads and deduping intentional identical-request-twice test calls), not a precaution.
+- Three consent tracks — A (Physical-Present-Consent) / B (Break-Glass) / C (Guardian Proxy) — all equal, no default.
+- 120s JWT window for Break-Glass (ProviderJWT) — half the standard window, a fraud-detection control.
+- 300s JWT window for standard resolution (facility JWT).
+- The 10th Break-Glass request in a 24h window is always processed — patient safety overrides security controls, non-negotiable.
+- Row locking (`SELECT ... FOR UPDATE` on `huuid_facilities`) for atomic Break-Glass rate limiting (migration 010) — concurrent requests for the same facility serialize through the count, one at a time, in commit order.
+- Advisory locks (`pg_advisory_xact_lock`, keyed on `facility_did + purpose_code`) for standard-resolution rate limiting (migration 011) — chosen over a facility-row lock specifically so Treatment and Administrative bursts for the same facility don't contend with each other.
+- Separate rate-limit counters per purposeCode (migration 011):
+  - Treatment: 50/hour, independent counter
+  - Administrative: 50/hour, independent counter
+  - Emergency: unlimited, logged for duplicate-detection but never counted against a ceiling
+  - Research: `403` at the route level, before the counter is ever called
+- Research's block runs BEFORE the rate-limit/duplicate-detection RPC call (moved there Month 5) — a Research request reusing an already-used request-id now gets `403`, not `409`, since Research is unconditionally rejected regardless of duplicate status.
+
+---
+
+## 7. Rate limit design note
+
+Treatment and Administrative use Postgres advisory transaction locks
+keyed on `facility_did + purpose_code` together
+(`pg_advisory_xact_lock(hashtextextended(...))`). Same-facility,
+different-purpose bursts run fully in parallel at the DB layer.
+Same-facility, same-purpose concurrency still fully serializes — verified
+for real: 50 Treatment + 50 Administrative fired *concurrently*
+(`Promise.all`, interleaved) against one fresh facility, 50/50 succeeded
+in each bucket with zero cross-contamination, and each bucket's 51st
+request was independently rejected on its own quota.
+
+This is the correct design for a global protocol where purposeCodes are
+legally distinct access categories with independent accountability —
+Break-Glass's simpler row-lock (migration 010) is appropriate there
+because it has only one bucket per facility; standard resolution needed
+the finer-grained lock once it gained multiple independent buckets.
+
+---
+
+## 8. EMR Stub security layers (all complete)
+
+- **P1 — SQLCipher** via `@signalapp/sqlcipher`. AES-256-CBC + HMAC-SHA512 (SQLCipher's real cipher — not GCM, despite the spec naming GCM; `PRAGMA cipher='aes-256-gcm'` is silently accepted but ignored, confirmed empirically). Key derived via HKDF-SHA256 from the facility private key.
+- **P2 — OS keystore** via `@napi-rs/keyring`, replacing unmaintained `keytar`. Automatic migration from legacy keytar credentials on Windows via raw `advapi32.dll` P/Invoke (`@napi-rs/keyring`'s own `Entry.withTarget()` was found broken on Windows — confirmed via a self-consistency test before building the P/Invoke fallback). keytar encodes `CredentialBlob` as UTF-8, not the Windows-native UTF-16LE — decoding as UTF-16LE produces garbage; this was confirmed against a real keytar-written credential before shipping the fix.
+- **P3 — Local shared-secret authentication.** `X-Local-Auth` header, compared via SHA-256 digest + `crypto.timingSafeEqual` (not raw string `===`). 3 failures within a 60-second window triggers a 15-minute lockout.
+- **P4 — Process integrity hashing.** HMAC-SHA256 manifest of `src/`/`scripts/`/`package-lock.json`, EdDSA-signed with the facility key. On a startup mismatch: 60-second countdown (real-timed, verified) then `exit(1)`, unless `HUUID_INTEGRITY_OVERRIDE=1` is set at relaunch — in which case the Stub starts, logs the override, and sends a second signed alert to the resolver with `override: true`. The 6-hour periodic recheck keeps the original soft-fail behavior (log + alert + keep running) — forcibly killing an already-running clinic server on a later recheck was judged a materially worse, unrequested risk than gating startup.
+- **QR — Offline QR card verification** (resolution tier 4). Resolver public key fetched once (`npm run download-keys`) and cached locally as `keys/resolver-public-key.json`. EdDSA signature verified fully offline — no network call. An expired-but-validly-signed token still returns blood type and allergies with a warning, rather than blocking emergency care.
+
+**Not real — flagging rather than including as fact:** a "P5: module
+isolation / process.env cleared after injection" layer was named in the
+brief for this handoff but does not exist anywhere in the Stub codebase
+— confirmed by searching `src/` and `scripts/` for any `process.env`
+clearing logic before writing this document. Nothing matches. The
+closest real mechanism is unrelated: `facility-key.ts` zeros raw private
+**key bytes** in memory after each signing operation (`rawKey.fill(0)`),
+which is key-material hygiene, not environment-variable/module
+isolation. If a P5 layer is wanted, it needs to be designed and built,
+not assumed complete.
+
+---
+
+## 9. Pre-pilot blockers (9 items)
+
+1. **Root Authority email notification.** Needs: a real domain for the resolver project (currently bare `*.vercel.app`, which breaks Resend SPF/DKIM per CLAUDE.md §00-B) + confirmed `RESEND_API_KEY` in Production. No integration exists in the resolver codebase at all yet.
+2. **QR signing key separation.** Needs: a dedicated resolver-owned Ed25519 keypair (currently `GET /1.0/resolver-public-key` publishes the same key as the seeded test facility — a known Month 4 testing stand-in) + an actual QR card issuance endpoint on the resolver (nothing issues real cards today, only verifies them).
+3. **Stub refuse-to-start on integrity violation.** The 60-second countdown/override mechanism is built and verified with real timing. Needs: real clinic feedback on whether 60 seconds is the right grace period in practice.
+4. **AES-256-CBC vs GCM spec variance.** Needs: `HUUID-EMR-STUB-v0.1.2.docx` updated to state the real cipher (CBC+HMAC-SHA512) instead of GCM.
+5. **Real EMR fetch in Break-Glass.** `emergencyData` is still mock data (fixed blood type/allergy/medication) shaped by `scopeGranted`. Needs: actual facility EMR/service-endpoint integration.
+6. **Patient contact store for SMS.** Patient notifications always queue with `channel: 'deferred'` — no phone/WhatsApp/guardian data is captured anywhere. Needs: a patient registration flow.
+7. **`GET /1.0/audit/my-records`.** Patient self-access to their own audit history — not built. `GET /1.0/audit/{huuid}` (facility- and Root-Authority-scoped) shipped Month 5, but patient-facing access needs a patient authentication mechanism that doesn't exist yet.
+8. **Rolling 50/hour rate limit on the resolver.** **CLOSED** — migration 011 complete, independent per-purposeCode counters verified under concurrent load.
+9. **Root Authority identity keypair.** The Root Authority's facility identity (`did:huuid:gh:root-authority-hpwg`) has had its private key generated and deleted **twice** during testing (Month 5, then again Month 5/6 boundary to verify `/api/health`'s elevated view) — it has no permanent home. Needs: a permanent Ed25519 keypair generated once, stored in an OS keystore or equivalent on a machine/system the Root Authority actually controls, its public key registered in `huuid_facilities`, and the private key never deleted again. This is the key that grants cross-facility audit query access (`GET /1.0/audit/{huuid}`) and the `/api/health` elevated view — losing it permanently means losing that oversight capability, not just a testing inconvenience.
+
+---
+
+## 10. Technical decisions record
+
+`docs/TECHNICAL-DECISIONS.md` in `huuid-emr-stub` — every load-bearing
+decision documented with rejected alternatives and the reason each was
+rejected. Key entries:
+
+- `@signalapp/sqlcipher`, not `@journeyapps/sqlcipher` (the latter has no Windows build path)
+- AES-256-CBC, not GCM (SQLCipher has no GCM mode — confirmed empirically, not assumed)
+- `@napi-rs/keyring`, not `keytar` (unmaintained, no releases in over a year)
+- Raw `advapi32.dll` P/Invoke for keytar migration (both `Entry.withTarget()` and the `Get-StoredCredential` PowerShell cmdlet were tried first and rejected — the former is buggy on Windows, the latter isn't a built-in cmdlet)
+- UTF-8, not UTF-16LE, for decoding legacy keytar credentials
+- `Entry.withTarget()` is broken on Windows — confirmed via a pure self-consistency test (write and read back with the same library, no keytar involved) before concluding it was a real bug, not a naming mismatch
+- Advisory locks (`facility_did + purpose_code`) for parallel purposeCode rate limiting, over a facility-row lock, specifically to let independent purposeCode buckets avoid contending with each other
+
+---
+
+## 11. Month 5 security findings summary
+
+- 8/8 red-team attacks blocked in production against the live resolver and a running Stub.
+- Attack 4 (bulk query harvest): was **open** — standard resolution had zero rate limiting at all when Month 5 began — fixed, deployed, then reverified blocked before Part 2 proceeded.
+- Race condition in the count-then-insert rate-limit check: closed with row locking (migration 010), then re-architected with advisory locks (migration 011) once counters were split per purposeCode.
+- Load Test 1 (100 concurrent, 30s): 0% true error rate (5xx / connection failures) in every run, including before and after both rate-limit fixes.
+- Exact rate limits enforced under concurrency — verified with real numbers, not assumed: 50/50 Treatment, 50/50 Administrative, both independently rejecting their own 51st request.
+- NHIA fraud-detection demo: working end to end against production — two facilities resolving the same patient, both audit records visible via `GET /1.0/audit/{huuid}`, cross-facility view confirmed by a genuine (re-keyed) Root Authority JWT.
+- Root Authority `/api/health` view: scoped correctly — verified all three cases (unauthenticated, ordinary facility JWT, genuine Root Authority JWT) against production, not just by reading the code.
+- Research purpose: confirmed at the database level to have **zero** rows in `huuid_request_log`, not just a `403` response — it genuinely never reaches any counter.
+
+---
+
+## 12. Month 6 scope — pilot readiness
+
+This is a documentation and compliance month. No new code features unless
+a pre-pilot blocker demands one.
+
+**Task 1 — Protocol documentation.** Update all spec documents from v0.2
+to v0.3 reflecting every real variance found during the build: AES-256-CBC
+not GCM, `@signalapp/sqlcipher` on Windows, advisory locks for rate
+limiting, and all 9 pre-pilot blockers listed above.
+
+**Task 2 — Integration manual.** A document simple enough for a junior
+developer to connect their app to HUUID in 10 minutes, based on
+`HUUID-RESOLVER-API-v0.2.docx`. Curl examples, error handling, a
+purposeCode guide, a rate-limit guide.
+
+**Task 3 — Compliance documentation.** HIPAA posture (resolver holds no
+PHI), GDPR posture (no special category data), audit trail
+(immutable, tamper-evident), data sovereignty (records never leave the
+facility).
+
+**Task 4 — Government pitch update.** Update
+`HUUID-GOVERNMENT-PITCH-v0.2.docx`: build schedule to all COMPLETE, live
+resolver URL, W3C registration confirmation (**verify PR #722's actual
+merge date against GitHub before writing this — see § 15**), pre-pilot
+checklist summary.
+
+**Task 5 — Pre-pilot verification plan.** For each of the 9 blockers in
+§ 9: define exactly what must be true for that specific blocker to be
+declared closed at a real pilot facility.
+
+---
+
+## 13. Environment variables (names only)
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `HUUID_RESOLVER_VERSION`
 - `HUUID_TEST_FACILITY_JWK`
+- `RESEND_API_KEY` — **not yet set**, Blocker 1
 
-All 5 confirmed present in Vercel across Production, Preview, and
-Development scopes as of this handoff. `SUPABASE_SERVICE_ROLE_KEY` and
-`HUUID_TEST_FACILITY_JWK` are server-side only, guarded by `server-only`
-imports (`lib/supabase-server.ts`, `lib/test-facility-jwt.ts`,
-`lib/test-provider-jwt.ts`). Never commit real values — `.env.local` is
-gitignored; `.env.example` holds placeholders only.
-
-## 7. Architecture decisions — locked
-
-- GET for resolution only. POST for Break-Glass only (the only POST in the system).
-- Audit writes happen BEFORE the response, always.
-- If the audit write fails, return `500` — no data returned. No exceptions.
-- Service role is server-side only, never shipped to the client.
-- `cache: 'no-store'` on ALL Supabase requests (`lib/supabase-server.ts`
-  overrides the client's `global.fetch`). **This is a real bug fix, not a
-  precaution** — Next.js's automatic fetch caching/memoization was
-  observed serving stale reads (a suspended facility kept resolving `200`)
-  and deduping intentional identical-request-twice self-fetches in debug
-  tooling (masking a `409` that was actually correct). Any new self-fetch
-  or Supabase-read code added to this app must account for this.
-- Three consent tracks — A/B/C — all equal, no default:
-  - **Track A** — Physical-Present-Consent (patient conscious and present, routine)
-  - **Track B** — Break-Glass (patient incapacitated)
-  - **Track C** — Guardian Proxy (minor or legally incapacitated adult)
-- 120s JWT window for Break-Glass (ProviderJWT) — half the standard window, a fraud-detection control, not a usability constraint.
-- 300s JWT window for standard resolution (facility JWT).
-- The 10th Break-Glass request in a 24h window is **always processed** — patient safety overrides security controls. Non-negotiable.
-- Explicit GRANT blocks required on every table (Supabase's May 30 2026 breaking change — omitting them causes a silent permission-denied error with no exception thrown).
-- Deployment region pinned to `cdg1` via `vercel.json` — co-located with Supabase `eu-west-1` specifically to keep DB round-trip latency low and consistent. This was a measured fix (see § 2, Month 2) for a real production timing-side-channel problem, not a default choice — do not remove it without re-measuring 404-vs-410 timing.
-
-## 8. Known deferred items
-
-- `emergencyData` in the Break-Glass response is **mock data**, shaped by `scopeGranted` (fixed blood type, fixed allergy, fixed medication) — real EMR fetch from facility service endpoints is Month 4+.
-- Patient notifications always queue with `channel: 'deferred'` — there is no patient contact store yet (no phone/WhatsApp/guardian data captured at enrollment). Real SMS/WhatsApp/guardian-SMS delivery via Hubtel, and the 30-second retry-for-24h loop on failure, are Month 4+.
-- Clinician key management: ProviderJWTs are verified against the **facility's** public key (`huuid_facilities.public_key_multibase`), not a separate per-clinician key registry. Explicitly sanctioned as a Month 3 simplification — real per-clinician keys are Month 4+.
-- `409 duplicateRequest` is **not implemented** on the Break-Glass endpoint — the literal 12-step processing order given for Month 3 didn't include a duplicate-request-ID check for Break-Glass (unlike the standard resolver, which has one via `huuid_request_log`). Flagged as a gap, not silently added.
-- Rolling rate limits (50/hour) on the standard resolver for `Treatment`/`Administrative` purpose codes — not yet enforced.
-- Constant-time hardening: 43ms aggregate median delta in production (target was under 50ms) — met, but occasional cold-start-adjacent latency spikes (observed up to ~463ms on individual requests) are not fully eliminated. Not a per-request guarantee, a typical-case one.
-- Break-Glass `404` responses are NOT constant-time hardened (unlike the standard resolver's 150ms floor) — deferred.
-- `GET /1.0/audit/{huuid}` (facility self-service, own records only) and `GET /1.0/audit/my-records` (patient self-service) — neither built yet.
-- `POST /1.0/audit/break-glass/deferred` (offline QR-card fallback upload) — not built.
-- Root Authority webhook on suspension trigger — no webhook infrastructure exists yet.
-- Manual suspension/reinstatement tooling — `huuid_facility_suspensions.reason` is always `'bg_rate_limit_exceeded'` today; reinstatement is a direct DB update, no UI/endpoint.
-- `huuid_request_log` retention/purge job — rows accumulate indefinitely (no time-window expiry despite the column existing).
-- TLS 1.3-only enforcement for the Break-Glass endpoint (spec requirement) — an edge/CDN-level negotiation setting outside what Next.js app code on standard Vercel controls. Same known gap on the standard resolver.
-
-## 9. Security patches on record
-
-From `docs/CORRECTIONS.md` (July 2026) and `HUUID-CORRECTIONS-REGISTER-v0.2.docx`:
-
-- **C1** — Root Authority = HUUID Protocol Working Group (not Ghana Health Service, which is a prospective, not current, partner)
-- **C2** — HUUID Foundation as the international neutral root, above any national authority
-- **C3** — Three consent tracks equal; no track is the default for all scenarios
-- **C4** — Audit log access model made explicit (Foundation/Root Authority: all records via service role; facility: own records only via `GET /1.0/audit/{huuid}`, not yet built; patient: own records via `GET /1.0/audit/my-records`, not yet built)
-- **C5** — Response drafted for the W3C reviewer's `did:web` comparison comment, to be posted on PR #722 — **status of actually posting it is not verified by this Claude Code session; see § 13**
-- **C6** — HTTP methods made explicit everywhere: GET for resolution, POST only for Break-Glass
-- **C7** — `HUUID-EMR-STUB-v0.1` retirement warning added wherever the Stub is referenced. **Only `v0.1.1` is valid** (confirmed explicitly in the v0.2 corrections register — a `v0.1.2` file now also exists in the spec folder but is not mentioned there and has not been read in this repo; do not treat it as superseding v0.1.1 without reading it first)
-
-Code-level fixes made during this build, verified in production:
-
-- Next.js fetch-caching bug fixed (`cache: 'no-store'` override — see § 7)
-- `jose` v6 compatibility confirmed (bumped from v5 mid-build; lint/typecheck/build all pass, all JWT flows re-verified)
-- Region co-location (`cdg1`) — measured before/after, see § 2
-- The 429-vs-403 Break-Glass suspension paths were verified **independently** in production: a pre-seeded suspension with a low request count returns `403`; the 11th request of a live 10-request sequence returns `429`. These are deliberately different code paths — see `app/api/1.0/identifiers/[did]/break-glass/route.ts` file-level comment for why a naive single check can't produce both outcomes.
-
-## 10. All live routes
-
-| Method | Route | Status (verified at handoff time) |
-|---|---|---|
-| GET | `/` | 200 |
-| GET | `/api/health` | 200 |
-| GET | `/1.0/identifiers/{did}` | resolver (rewrite to `/api/1.0/identifiers/[did]`) |
-| POST | `/1.0/identifiers/{did}/break-glass` | Break-Glass (rewrite to `/api/1.0/identifiers/[did]/break-glass`) |
-| GET | `/debug/resolver` | 200 — temporary, remove before public launch |
-| GET | `/debug/break-glass` | 200 — temporary, remove before public launch |
-
-## 11. Build discipline — enforce every session
-
-- One layer at a time.
-- Debug page before any UI.
-- Audit writes before response, always.
-- Service role server-only, never client.
-- All checks verified in production, not localhost — localhost/dev shares the same production Supabase project (no isolated local DB; see the gotcha in § 13).
-- Document timing measurements honestly — if a target isn't met, say so; don't report the one favorable batch out of several.
-- Never change more than one layer at a time.
-- Explicit GRANTs on every new Supabase table.
-
-## 12. How to start the next session
-
-Open Claude Code pointed at the HUUID local folder. First message:
-
-> "Read HANDOFF.md first. Then read all `.docx` files in this folder.
-> Then tell me the current state of the build and what comes next."
+Confirmed against the actual `.env.local` while writing this handoff:
+exactly the first 5 are present; `RESEND_API_KEY` is absent, matching
+Blocker 1's description exactly.
 
 ---
 
-## 13. Flagged discrepancies — resolve before relying on either fact
+## 14. How to start the next session
 
-**PR #722 merge date.** The original project brief (start of this Claude
-Code session) stated *"W3C PR #722, merged June 2026."* This handoff
-request states *"MERGED July 2026."* Neither the repo nor
-`HUUID-CORRECTIONS-REGISTER-v0.2.docx` (dated July 2026, which references
-PR #722 only as an open target for a reviewer-response comment — see C5
-above) states an explicit merge date. **This session did not verify the
-actual GitHub PR** — do not cite a merge date externally (government
-pitch, W3C correspondence, etc.) until confirmed against
-`github.com/w3c/did-extensions/pull/722` directly.
+Open Claude Code pointed at the HUUID folder containing all `.docx`
+documents and this file. First message:
 
-**C5 status.** The corrections register describes C5 as a comment
-*drafted and ready to post* on PR #722 — its own language is "Post this
-comment on PR #722," an instruction, not a confirmation. This handoff
-request lists it as "posted" (past tense). No Claude Code session has
-posted anything to that PR (no GitHub PR-commenting action occurred in
-this build). If it has been posted, it was done by the operator directly
-outside this tool — worth a quick confirmation before treating it as
-settled in any external-facing document.
+> "Read HANDOFF.md first. Then read all `.docx` files in this folder.
+> Then tell me the current state and what comes next."
 
-**Local dev shares production data — a recurring gotcha, not a one-off.**
-`npm run dev` reads `.env.local`, which points at the same shared
-production Supabase project used by the live deployment. There is no
-isolated local database. Test data from local sessions (rate-limit rows,
-audit rows) lands in production and can exhaust real, stateful ceilings —
-this happened once already: local testing alone pushed the seeded test
-facility (`did:huuid:gh:node-test-001`) to its 10/24h Break-Glass rate
-limit before any deliberate production verification began. `service_role`
-has no DELETE grant on `huuid_bg_rate_limit` by design (matches the spec);
-resetting test data for a clean run requires the Supabase MCP's
-admin-level SQL access, not the app's own credentials. Plan test sequences
-for any rate-limited/stateful feature with this in mind.
+---
+
+## 15. Flagged discrepancy — carried forward, still unresolved
+
+**W3C PR #722 merge date.** The handoff this document replaces flagged
+that this exact date has been stated inconsistently across sessions (one
+session's brief said "merged June 2026," this one says "MERGED July
+2026") and that **no Claude Code session has independently verified it**
+against `github.com/w3c/did-extensions/pull/722`. That remains true as of
+this handoff — nothing in this session checked GitHub directly either.
+Month 6 Task 4 explicitly asks to add "W3C registration confirmation" to
+a government pitch document — confirm the actual merge date against
+GitHub before that date appears in any external-facing document. This is
+not a reason to doubt the underlying fact (the PR may well be merged
+exactly as stated) — it's a reason to spend thirty seconds confirming it
+before it's cited somewhere that matters.
