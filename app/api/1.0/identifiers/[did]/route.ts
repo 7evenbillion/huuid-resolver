@@ -321,62 +321,33 @@ export async function GET(
     );
   }
 
-  // ── Step 4: duplicate X-HUUID-Request-ID detection — must precede any
-  // audit write; a duplicate is rejected before huuid_audit_log is touched
-  // (Hours 61-80). Single round trip: INSERT ... ON CONFLICT (request_id)
-  // DO NOTHING RETURNING id, via upsert(ignoreDuplicates) + select. No row
-  // returned means the conflict fired — this request_id was already logged
-  // (Hours 81+, replacing the earlier select-then-insert) ──
-  try {
-    const { data: insertedRow, error: requestLogError } = await getServiceClient()
-      .from('huuid_request_log')
-      .upsert(
-        { request_id: requestId, facility_did: facility as string },
-        { onConflict: 'request_id', ignoreDuplicates: true }
-      )
-      .select('id')
-      .maybeSingle();
-
-    if (requestLogError) throw new Error(requestLogError.message);
-
-    if (!insertedRow) {
-      return NextResponse.json(
-        errorBody('duplicateRequest', 'X-HUUID-Request-ID has already been used.', requestId),
-        { status: 409, headers: baseHeaders(null) }
-      );
-    }
-  } catch (err) {
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        requestId,
-        action: 'request_log_failed',
-        resource: 'huuid_request_log',
-        status: 500,
-        message: err instanceof Error ? err.message : 'unknown',
-        timestamp: new Date().toISOString(),
-      })
-    );
-    const auditId = await audit('internalError');
-    return NextResponse.json(
-      errorBody('internalError', 'Request log write failed.', requestId),
-      { status: 500, headers: baseHeaders(auditId) }
-    );
-  }
-
-  // ── Step 4.5: rate limiting for Treatment/Administrative (HUUID-RESOLVER-
-  // API-v0.2 Section 5: "50 unique/hour, Rolling 60 min, 429 + Retry-After").
-  // Research is already blocked outright (Step 5, never reaches here in
-  // practice). Emergency is explicitly unlimited per the same table -- not
-  // gated here.
+  // ── Step 4/4.5 combined, Month 5 atomic fix: duplicate X-HUUID-Request-ID
+  // detection AND rate limiting for Treatment/Administrative, in one
+  // Postgres function call (migration 010, increment_resolution_rate_limit).
   //
-  // Reuses huuid_request_log rather than a new table: Step 4 above already
-  // upserted this request's row (facility_did, logged_at) for duplicate
-  // detection before we get here, so counting rows for this facility in the
-  // last 60 minutes naturally INCLUDES the current request. Request #51
-  // brings the count to 51 (>50) -> 429; requests 1-50 all count <=50 and
-  // pass. This is what makes "429 after 50 requests" / "the 51st request"
-  // true without a second write.
+  // Why this replaced two separate round trips: the original Step 4
+  // (upsert) + Step 4.5 (a plain SELECT COUNT afterward) were two
+  // independent statements. Under concurrent load this was confirmed to
+  // race — a 100-concurrent burst produced only 42 successes instead of
+  // 50, because many requests could each insert their own row and then
+  // read the count *before* seeing each other's inserts. Wrapping both
+  // statements in a single RPC call does NOT by itself fix that; the
+  // function additionally takes a row lock on the requesting facility
+  // (`SELECT ... FOR UPDATE` on huuid_facilities) so concurrent callers
+  // for the SAME facility serialize through the count, one at a time, in
+  // commit order. Different facilities are unaffected — the lock is
+  // per-row. See migration 010's own comment for the full trade-off note
+  // (this does reduce a single facility's achievable burst throughput, in
+  // exchange for the count being correct).
+  //
+  // Returns -1 for a duplicate request_id (409, no audit row, matching the
+  // original behavior exactly) or the new count for this facility in the
+  // trailing 60 minutes, INCLUDING the request just recorded — request #51
+  // brings the count to 51 and is rejected; 1-50 pass. Always records
+  // regardless of purpose (duplicate detection applies to every purpose,
+  // as before); only Treatment/Administrative ENFORCE the count as a
+  // limit — Research is blocked outright at Step 5 below (never reaches
+  // here in practice) and Emergency is explicitly unlimited per Section 5.
   //
   // Scope decision, not yet confirmed by Root Authority: Treatment and
   // Administrative share ONE 50/hour counter per facility here, rather than
@@ -385,73 +356,73 @@ export async function GET(
   // either. Every test in Month 5's stress-testing brief only exercises
   // Treatment, so this doesn't affect any DoD item, but it's a real
   // ambiguity — flagged on the pre-pilot checklist, not silently resolved.
-  if (purposeHeader === 'Treatment' || purposeHeader === 'Administrative') {
+  let requestCount: number;
+  try {
+    const { data, error: rpcError } = await getServiceClient().rpc('increment_resolution_rate_limit', {
+      p_facility_did: facility as string,
+      p_request_id: requestId,
+    });
+    if (rpcError) throw new Error(rpcError.message);
+    requestCount = data as number;
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        requestId,
+        action: 'rate_limit_rpc_failed',
+        resource: 'huuid_request_log',
+        status: 500,
+        message: err instanceof Error ? err.message : 'unknown',
+        timestamp: new Date().toISOString(),
+      })
+    );
+    const auditId = await audit('internalError');
+    return NextResponse.json(
+      errorBody('internalError', 'Rate limit check failed.', requestId),
+      { status: 500, headers: baseHeaders(auditId) }
+    );
+  }
+
+  if (requestCount === -1) {
+    return NextResponse.json(
+      errorBody('duplicateRequest', 'X-HUUID-Request-ID has already been used.', requestId),
+      { status: 409, headers: baseHeaders(null) }
+    );
+  }
+
+  const RATE_LIMIT_MAX = 50;
+  if ((purposeHeader === 'Treatment' || purposeHeader === 'Administrative') && requestCount > RATE_LIMIT_MAX) {
     const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-    const RATE_LIMIT_MAX = 50;
-    const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS);
-    try {
-      const { count, error: rateLimitCountError } = await getServiceClient()
-        .from('huuid_request_log')
-        .select('id', { count: 'exact', head: true })
-        .eq('facility_did', facility as string)
-        .gte('logged_at', windowStart.toISOString());
-      if (rateLimitCountError) throw new Error(rateLimitCountError.message);
+    const { data: oldestInWindow } = await getServiceClient()
+      .from('huuid_request_log')
+      .select('logged_at')
+      .eq('facility_did', facility as string)
+      .gte('logged_at', new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString())
+      .order('logged_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    const retryAfterSeconds = oldestInWindow
+      ? Math.max(
+          1,
+          Math.ceil((new Date(oldestInWindow.logged_at).getTime() + RATE_LIMIT_WINDOW_MS - Date.now()) / 1000)
+        )
+      : 3600;
 
-      if ((count ?? 0) > RATE_LIMIT_MAX) {
-        const { data: oldestInWindow } = await getServiceClient()
-          .from('huuid_request_log')
-          .select('logged_at')
-          .eq('facility_did', facility as string)
-          .gte('logged_at', windowStart.toISOString())
-          .order('logged_at', { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        const retryAfterSeconds = oldestInWindow
-          ? Math.max(
-              1,
-              Math.ceil(
-                (new Date(oldestInWindow.logged_at).getTime() + RATE_LIMIT_WINDOW_MS - Date.now()) / 1000
-              )
-            )
-          : 3600;
-
-        const auditId = await audit('rateLimitExceeded');
-        if (!auditId) {
-          return NextResponse.json(
-            errorBody('internalError', 'Audit write failed. Resolution aborted.', requestId),
-            { status: 500, headers: baseHeaders(null) }
-          );
-        }
-        return NextResponse.json(
-          errorBody(
-            'rateLimitExceeded',
-            `Over ${RATE_LIMIT_MAX} unique resolutions/hour for ${purposeHeader}.`,
-            requestId
-          ),
-          {
-            status: 429,
-            headers: { ...baseHeaders(auditId), 'Retry-After': String(retryAfterSeconds) },
-          }
-        );
-      }
-    } catch (err) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          requestId,
-          action: 'rate_limit_count_failed',
-          resource: 'huuid_request_log',
-          status: 500,
-          message: err instanceof Error ? err.message : 'unknown',
-          timestamp: new Date().toISOString(),
-        })
-      );
-      const auditId = await audit('internalError');
+    const auditId = await audit('rateLimitExceeded');
+    if (!auditId) {
       return NextResponse.json(
-        errorBody('internalError', 'Rate limit check failed.', requestId),
-        { status: 500, headers: baseHeaders(auditId) }
+        errorBody('internalError', 'Audit write failed. Resolution aborted.', requestId),
+        { status: 500, headers: baseHeaders(null) }
       );
     }
+    return NextResponse.json(
+      errorBody(
+        'rateLimitExceeded',
+        `Over ${RATE_LIMIT_MAX} unique resolutions/hour for ${purposeHeader}.`,
+        requestId
+      ),
+      { status: 429, headers: { ...baseHeaders(auditId), 'Retry-After': String(retryAfterSeconds) } }
+    );
   }
 
   // ── Step 5: Research purpose is blocked until Root Authority approval ──

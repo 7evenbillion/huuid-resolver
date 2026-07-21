@@ -335,7 +335,25 @@ export async function POST(req: NextRequest, { params }: { params: { did: string
     );
   }
 
-  // ── Step 3: rate-limit + suspension gate (see file-level note above) ──
+  // ── Step 3: rate-limit + suspension gate (see file-level note above).
+  // Month 5 atomic fix: this count is now a FAST-PATH PRE-FILTER only, not
+  // the authoritative decision. It runs before the expensive signature
+  // verification (Step 4) purely to reject an obviously-already-over-limit
+  // facility cheaply. It can only ever be overly PERMISSIVE under a race
+  // (an in-flight, not-yet-committed sibling request's row isn't counted
+  // yet — the count can under-count, never over-count, since rows are only
+  // ever added), so a false negative here is safe: the AUTHORITATIVE
+  // check now lives in increment_bg_rate_limit (migration 010, called at
+  // the former Step 6), which takes a row lock on this facility and is
+  // called only after signature verification succeeds — matching the
+  // original behavior where a request with an invalid signature never
+  // consumed rate-limit budget. See migration 010's comment for why
+  // wrapping insert+count in a stored function alone would not have fixed
+  // the race without that lock — confirmed under real load: 10 truly
+  // concurrent requests all read a low count before seeing each other's
+  // inserts, so none of them ever computed "I am the 10th," and the
+  // huuid_facility_suspensions row silently never got created even though
+  // the numeric 429 ceiling still held for later requests. ──
   let priorCount = 0;
   try {
     const windowStart = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
@@ -448,30 +466,38 @@ export async function POST(req: NextRequest, { params }: { params: { did: string
     PERMITTED_SCOPES.includes(s as PermittedScope)
   );
 
-  // ── Step 6: record this request; open a suspension at exactly the 10th ──
-  const newCount = priorCount + 1;
+  // ── Step 6: record this request; open a suspension at exactly the 10th.
+  // Month 5 atomic fix: this is now the AUTHORITATIVE rate-limit decision
+  // (Step 3 above is only a fast-path pre-filter). increment_bg_rate_limit
+  // (migration 010) takes a row lock on this facility so concurrent
+  // callers serialize through the count one at a time, then atomically
+  // records the request, marks it `suspended` if it is the 10th, and opens
+  // the huuid_facility_suspensions row in the SAME transaction if this is
+  // exactly the 10th — the exact step Load Test 3 found could be silently
+  // skipped under true concurrency. Returns NULL when the facility is
+  // already at/over the ceiling (this request is deliberately not
+  // recorded, matching the original behavior for the 11th+ request). ──
   try {
-    const { error: rateLimitInsertError } = await getServiceClient()
-      .from('huuid_bg_rate_limit')
-      .insert({
-        facility_did: facility as string,
-        request_id: requestId,
-        suspended: newCount >= SUSPEND_AT_COUNT,
-      });
-    if (rateLimitInsertError) throw new Error(rateLimitInsertError.message);
+    const { data: rpcResult, error: rpcError } = await getServiceClient().rpc('increment_bg_rate_limit', {
+      p_facility_did: facility as string,
+      p_request_id: requestId,
+    });
+    if (rpcError) throw new Error(rpcError.message);
 
-    if (newCount === SUSPEND_AT_COUNT) {
-      const { error: suspendInsertError } = await getServiceClient()
-        .from('huuid_facility_suspensions')
-        .insert({
-          facility_did: facility as string,
-          reason: 'bg_rate_limit_exceeded',
-          active: true,
-        });
-      if (suspendInsertError) throw new Error(suspendInsertError.message);
-      // 10th request is STILL processed — patient safety overrides security
-      // controls. Non-negotiable. Continue to Step 7.
+    if (rpcResult === null) {
+      const reviewReference = await activeSuspensionReviewReference();
+      return NextResponse.json(
+        bgErrorBody('rateLimitExceeded', 'Facility Break-Glass capability is rate-limited.', {
+          reviewReference,
+          contactRootAuthority: ROOT_AUTHORITY_CONTACT,
+        }),
+        { status: 429, headers: bgHeaders() }
+      );
     }
+    // 10th request is STILL processed — patient safety overrides security
+    // controls. Non-negotiable. Continue to Step 7 regardless of the
+    // returned count (the function already recorded suspended/opened
+    // huuid_facility_suspensions internally if this was exactly the 10th).
   } catch (err) {
     console.error(
       JSON.stringify({
