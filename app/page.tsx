@@ -1,303 +1,654 @@
-import ResolverTerminal from '@/components/ResolverTerminal';
-import { getServiceClient } from '@/lib/supabase-server';
+import Image from 'next/image';
+import Navigation from '@/components/Navigation';
+import LiveDemo from '@/components/LiveDemo';
 
-export const dynamic = 'force-dynamic';
-
-async function getNetworkStats() {
-  try {
-    const client = getServiceClient();
-    const [{ count: identifiers }, { count: resolutions }] = await Promise.all([
-      client.from('huuid_did_documents').select('id', { count: 'exact', head: true }),
-      client.from('huuid_audit_log').select('audit_entry_id', { count: 'exact', head: true }),
-    ]);
-    return { identifiers: identifiers ?? null, resolutions: resolutions ?? null };
-  } catch {
-    return { identifiers: null, resolutions: null };
-  }
-}
-
-const FOOTPRINT = [
-  { country: 'Ghana', status: 'National Pilot', pilot: true },
-  { country: 'Nigeria', status: 'Protocol Available', pilot: false },
-  { country: 'Kenya', status: 'Protocol Available', pilot: false },
-  { country: 'Rwanda', status: 'Protocol Available', pilot: false },
-  { country: 'South Africa', status: 'Protocol Available', pilot: false },
-];
-
-const GOVERNANCE_LINKS = [
-  { label: 'Protocol Specification', href: 'https://7evenbillion.github.io/huuid-did-method' },
-  { label: 'Open Governance', href: 'https://github.com/7evenbillion/huuid-resolver' },
-  { label: 'Independent Technical Review', href: 'https://github.com/w3c/did-extensions/pull/722' },
-  { label: 'Reference Implementation', href: 'https://github.com/7evenbillion/huuid-resolver' },
+const FACILITY_CARDS = [
   {
-    label: 'Security Disclosure Policy',
-    href: 'mailto:josephtdnarnor@gmail.com?subject=Security%20Disclosure',
+    icon: '🏥',
+    title: 'Admissions & Registration',
+    body: 'Register patients in seconds. Reduce duplicate records. Eliminate repeat registrations. Reduce queues. Improve patient flow. Spend less time on paperwork. Deliver a better patient experience from the moment of arrival.',
   },
   {
-    label: 'Protocol Roadmap',
-    href: 'mailto:josephtdnarnor@gmail.com?subject=Protocol%20Roadmap',
+    icon: '👨‍⚕️',
+    title: 'Doctors',
+    body: 'Treat informed patients instead of strangers. Discover previous diagnoses. Locate existing laboratory results. Locate previous imaging. Identify allergies. Review current medications. Make faster, better-informed clinical decisions.',
   },
   {
-    label: 'Government Adoption Framework',
-    href: 'mailto:josephtdnarnor@gmail.com?subject=Government%20Adoption',
-  },
-];
-
-const PATHS = [
-  {
-    role: "I'm a Government",
-    desc: 'Read the national adoption framework.',
-    label: 'Government adoption framework',
-    href: 'mailto:josephtdnarnor@gmail.com?subject=Government%20Adoption%20Inquiry',
+    icon: '🔬',
+    title: 'Specialists',
+    body: 'Locate relevant clinical history immediately. Reduce time requesting records. Collaborate across healthcare institutions. Improve continuity of specialist care. Begin treatment with greater confidence.',
   },
   {
-    role: "I'm a Hospital",
-    desc: 'Request a facility certificate.',
-    label: 'Request a certificate',
-    href: 'mailto:josephtdnarnor@gmail.com?subject=Facility%20Certificate%20Request',
+    icon: '🧪',
+    title: 'Laboratories',
+    body: 'Help clinicians discover existing results. Reduce unnecessary duplicate testing. Improve efficiency. Reduce patient costs. Support better clinical decision-making.',
   },
   {
-    role: "I'm a Developer",
-    desc: 'Read the API documentation.',
-    label: 'View on GitHub',
-    href: 'https://github.com/7evenbillion/huuid-resolver',
+    icon: '💊',
+    title: 'Pharmacies',
+    body: 'Improve medication safety. Identify allergies. Reduce prescription conflicts. Support safer dispensing decisions. Improve patient confidence.',
   },
   {
-    role: "I'm a Researcher",
-    desc: 'Read the protocol specification.',
-    label: 'Read the spec',
-    href: 'https://7evenbillion.github.io/huuid-did-method',
+    icon: '🩻',
+    title: 'Radiology',
+    body: 'Locate existing CT scans, MRI studies, ultrasound reports and X-rays. Reduce unnecessary repeat imaging. Improve efficiency while lowering healthcare costs.',
+  },
+  {
+    icon: '📋',
+    title: 'Finance & Billing',
+    body: 'Verify patient identity immediately. Reduce billing disputes. Strengthen insurance verification. Improve auditability. Reduce revenue leakage. Accelerate claims processing.',
+  },
+  {
+    icon: '🏛',
+    title: 'Hospital Administration',
+    body: 'Maintain cleaner patient records. Reduce duplicate identities. Improve operational efficiency. Strengthen interoperability. Reduce administrative workload. Improve reporting.',
   },
 ];
 
-const W3C_STATUS =
-  'did:huuid registered in the W3C DID Extensions Registry. PR #722, merged July 13, 2026 by ottomorac.';
+const PARTNER_CARDS = [
+  {
+    icon: '💻',
+    title: 'Digital Health & Technology',
+    subtitle: 'Build Once. Connect Everywhere.',
+    body: 'HUUID provides open standards and secure APIs. Electronic Medical Records. Hospital Information Systems. Telemedicine. Pharmacy Systems. Laboratory Systems. AI. Analytics. Build once. Connect everywhere.',
+  },
+  {
+    icon: '🔬',
+    title: 'Research Organisations',
+    subtitle: 'Advance Research. Protect Privacy.',
+    body: 'Advance healthcare research while protecting patient privacy. Recruit participants efficiently. Support longitudinal studies. Enable consent-driven participation.',
+  },
+  {
+    icon: '🏢',
+    title: 'Employers',
+    subtitle: 'Occupational Health. Simplified.',
+    body: 'Support occupational health programmes. Simplify employee medical assessments. Verify authorised outcomes without exposing unnecessary medical information.',
+  },
+  {
+    icon: '🎓',
+    title: 'Universities',
+    subtitle: 'Student Health. Connected.',
+    body: 'Support student healthcare services. Simplify vaccination verification. Improve medical clearance. Provide continuity for international students.',
+  },
+  {
+    icon: '🏦',
+    title: 'Banks & Financial Institutions',
+    subtitle: 'Healthcare Finance. Verified.',
+    body: 'Support healthcare financing through trusted verification. Verify healthcare events with patient consent. Improve healthcare loan processing.',
+  },
+  {
+    icon: '🌍',
+    title: 'Humanitarian Organisations',
+    subtitle: 'Care Without Borders.',
+    body: 'Deploy trusted healthcare identity in underserved and crisis environments. Support refugee healthcare continuity. Enable care without borders.',
+  },
+];
 
-function NetworkGraphic() {
-  return (
-    <svg width="220" height="90" viewBox="0 0 220 90" fill="none" aria-hidden="true">
-      <line x1="40" y1="45" x2="110" y2="20" stroke="#c7d2d6" strokeWidth="1" />
-      <line x1="110" y1="20" x2="180" y2="45" stroke="#c7d2d6" strokeWidth="1" />
-      <line x1="40" y1="45" x2="110" y2="70" stroke="#c7d2d6" strokeWidth="1" />
-      <line x1="110" y1="70" x2="180" y2="45" stroke="#c7d2d6" strokeWidth="1" />
-      <line x1="110" y1="20" x2="110" y2="70" stroke="#c7d2d6" strokeWidth="1" />
-      <circle cx="40" cy="45" r="5" fill="#c7d2d6" />
-      <circle cx="180" cy="45" r="5" fill="#c7d2d6" />
-      <circle cx="110" cy="20" r="5" fill="#c7d2d6" />
-      <circle cx="110" cy="70" r="8" fill="#0f9d8c" />
-    </svg>
-  );
-}
+const TRUST_ITEMS = [
+  { icon: '🔐', label: 'Patient-controlled consent' },
+  { icon: '📋', label: 'Immutable audit logs' },
+  { icon: '✓', label: 'Verifiable credentials' },
+  { icon: '📖', label: 'Open standards' },
+  { icon: '🛡', label: 'Privacy by design' },
+  { icon: '🏥', label: 'Healthcare institution ownership' },
+  { icon: '🌍', label: 'National healthcare sovereignty' },
+  { icon: '⚖', label: 'Transparent governance' },
+  { icon: '🔒', label: 'Modern cryptography' },
+];
 
-export default async function Home() {
-  const stats = await getNetworkStats();
-
+export default function Home() {
   return (
     <main>
-      {/* HERO */}
-      <section className="hero container">
-        <p className="hero-logo">HUUID</p>
-        <p className="hero-declaration">A neutral protocol for trusted healthcare identity.</p>
+      <Navigation />
 
-        <h1 className="hero-mission">
-          One patient.
-          <br />
-          One identity.
-          <br />
-          Every hospital.
-        </h1>
-        <p className="hero-category">Africa&apos;s Healthcare Trust Infrastructure</p>
-        <p className="hero-body">Ghana retains complete sovereignty over every patient record.</p>
-
-        <a className="btn btn-primary" href="#resolver">
-          Try the Resolver
-        </a>
-      </section>
-
-      {/* RESOLVER TERMINAL */}
-      <section className="section section-alt section-border-top" id="resolver">
-        <div className="container">
-          <p className="eyebrow">Live infrastructure</p>
-          <h2 className="section-title">Try the Resolver</h2>
-          <p className="section-subtitle">
-            Resolve a real HUUID against the production resolver — right now.
+      {/* SECTION 1 — HERO */}
+      <section className="hero">
+        <div className="hero-text">
+          <span className="badge">🛡 Trusted Healthcare Identity</span>
+          <h1 className="hero-headline">
+            Every patient is unique.
+            <br />
+            Healthcare should begin with
+            <br />
+            their unique medical history.
+          </h1>
+          <p className="hero-body">
+            Get your HUUID. One trusted healthcare identity for life. Be recognised at any
+            participating healthcare facility, anywhere in the world. Never start your healthcare
+            journey from scratch again.
           </p>
-          <ResolverTerminal />
-        </div>
-      </section>
-
-      {/* NATIONAL RESOLVER NETWORK */}
-      <section className="section section-border-top">
-        <div className="container">
-          <p className="eyebrow">Status</p>
-          <h2 className="section-title">National Resolver Network</h2>
-          <p className="section-subtitle">
-            Live production status of the HUUID resolution infrastructure.
-          </p>
-          <div className="dashboard-grid">
-            <div className="dashboard-cell">
-              <div className="dashboard-value">Live</div>
-              <div className="dashboard-label">Resolver status</div>
-            </div>
-            <div className="dashboard-cell">
-              <div className="dashboard-value">
-                {stats.identifiers !== null ? stats.identifiers.toLocaleString() : '—'}
-              </div>
-              <div className="dashboard-label">Identifiers registered</div>
-            </div>
-            <div className="dashboard-cell">
-              <div className="dashboard-value">
-                {stats.resolutions !== null ? stats.resolutions.toLocaleString() : '—'}
-              </div>
-              <div className="dashboard-label">Resolutions logged</div>
-            </div>
-            <div className="dashboard-cell">
-              <div className="dashboard-value">8/8</div>
-              <div className="dashboard-label">Attack vectors blocked</div>
-            </div>
-            <div className="dashboard-cell">
-              <div className="dashboard-value">Paris</div>
-              <div className="dashboard-label">Resolver region (cdg1)</div>
-            </div>
+          <div className="hero-buttons">
+            <a href="/waitlist" className="btn btn-teal">
+              Get Your HUUID →
+            </a>
+            <a href="#how-it-works" className="btn btn-teal-outline">
+              See How It Works ▶
+            </a>
           </div>
-          <p className="dashboard-footnote">
-            Every resolution generates a permanent cryptographic audit record.
-          </p>
-        </div>
-      </section>
-
-      {/* WORLD FOOTPRINT */}
-      <section className="section section-alt section-border-top">
-        <div className="container">
-          <p className="eyebrow">Reach</p>
-          <h2 className="section-title">Where HUUID Operates</h2>
-          <p className="section-subtitle">
-            HUUID is an open, W3C-registered protocol. Any country can implement it —
-            Ghana is the first to pilot it.
-          </p>
-          <div className="network-graphic">
-            <NetworkGraphic />
-          </div>
-          <div className="footprint-grid">
-            {FOOTPRINT.map((f) => (
-              <div className="footprint-card" key={f.country}>
-                <div className="footprint-country">{f.country}</div>
-                <span
-                  className={
-                    f.pilot ? 'status-pill status-pill-pilot' : 'status-pill status-pill-available'
-                  }
-                >
-                  {f.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* GOVERNMENT SECTION */}
-      <section className="section section-border-top">
-        <div className="container">
-          <p className="eyebrow">For government</p>
-          <h2 className="section-title">Built for institutional trust</h2>
-          <p className="section-subtitle">
-            Three questions every Ministry asks before adopting national infrastructure.
-          </p>
-          <div className="gov-grid">
-            <div>
-              <h3 className="gov-heading">Sovereign Health Data</h3>
-              <p className="gov-body">
-                No medical record ever leaves the facility where it was created. HUUID holds a
-                cryptographic pointer only — never a diagnosis, prescription, or lab result. Every
-                access requires the patient&apos;s physical presence and consent, or a permanently
-                audited Break-Glass declaration. Ghana&apos;s data stays in Ghana.
-              </p>
+          <div className="trust-row">
+            <div className="trust-item">
+              <span>🛡</span>
+              <span>Your medical records stay where they are created.</span>
             </div>
-            <div>
-              <h3 className="gov-heading">Protecting Public Health Funds</h3>
-              <p className="gov-body">
-                The average hospital system carries 15-30% duplicate patient records, and
-                comparable deployments elsewhere in Africa report 15-40% of health insurance
-                payouts lost to claims fraud. Every HUUID resolution is cryptographically signed
-                and permanently logged — insurance claims become independently verifiable, and
-                fraud becomes detectable even years after the fact.
-              </p>
-            </div>
-            <div>
-              <h3 className="gov-heading">Emergency Clinical Access</h3>
-              <p className="gov-body">
-                When a patient arrives unconscious, an authorised clinician can trigger
-                time-limited Break-Glass access to blood type, critical allergies, and current
-                medications — no prior consent required, because none can be given. The access is
-                logged, the patient is notified, and the grant expires automatically.
-              </p>
+            <div className="trust-item">
+              <span>🌐</span>
+              <span>Your trusted healthcare identity travels with you.</span>
             </div>
           </div>
         </div>
-      </section>
-
-      {/* STANDARDS */}
-      <section className="section section-alt section-border-top">
-        <div className="container">
-          <p className="eyebrow">Standards</p>
-          <h2 className="section-title">Built on open standards</h2>
-          <div className="standards-box">
-            <strong>did:huuid</strong> registered in the W3C DID Extensions Registry. PR #722,
-            merged July 13, 2026 by ottomorac.
-          </div>
+        <div className="hero-image-col">
+          <Image src="/images/hero-main.png" alt="Patient showing her HUUID on a hospital app" fill priority sizes="40vw" style={{ objectFit: 'cover' }} />
         </div>
       </section>
 
-      {/* GOVERNANCE */}
-      <section className="section section-border-top">
+      {/* SECTION 2 — WHY HUUID EXISTS */}
+      <section className="section section-white" id="patients">
+        <div className="container" style={{ maxWidth: 860 }}>
+          <p className="eyebrow">WHY HUUID EXISTS</p>
+          <h2 className="h2">Every person has a unique healthcare story.</h2>
+
+          <p className="body-text">
+            Your blood type, allergies, medications, vaccinations, surgeries, laboratory results,
+            chronic conditions and treatment history are unique to you. No two patients are the
+            same. Yet every day, millions of people walk into healthcare facilities around the
+            world and become strangers.
+          </p>
+          <p className="body-text">
+            The same registration forms.
+            <br />
+            The same medical questions.
+            <br />
+            The same history repeated from memory.
+            <br />
+            The same uncertainty.
+          </p>
+
+          <div className="callout">
+            <p>
+              Imagine Ama, who lives in Accra and manages diabetes. She travels to Cape Town for
+              work and develops an infection. At the clinic she is asked to complete another
+              registration form and recall years of medications, allergies, previous treatments
+              and laboratory tests. Her medical history already exists — it simply cannot be
+              recognised.
+            </p>
+            <p>
+              With HUUID, that experience changes. The clinic recognises Ama&apos;s trusted
+              healthcare identity in seconds. With her consent, the clinician discovers where her
+              medical history already exists and requests exactly what is needed. Her records
+              never leave Ghana. The treating facility gains the information it needs. Ama
+              receives informed care without starting from the beginning.
+            </p>
+          </div>
+
+          <p className="body-text">
+            This happens every day, in every country, across every healthcare system.
+          </p>
+          <p className="body-text">
+            Healthcare should never begin with guesswork.
+            <br />
+            Healthcare should begin with your unique medical history.
+            <br />
+            HUUID makes that possible.
+          </p>
+        </div>
+      </section>
+
+      {/* SECTION 3 — HOW HUUID WORKS */}
+      <section className="section section-white center" id="how-it-works">
         <div className="container">
-          <p className="eyebrow">Governance</p>
-          <h2 className="section-title">Governance</h2>
-          <p className="section-subtitle">HUUID is governed as an open protocol.</p>
-          <ul className="governance-list">
-            {GOVERNANCE_LINKS.map((link) => (
-              <li key={link.label}>
-                <a href={link.href} target={link.href.startsWith('mailto:') ? undefined : '_blank'} rel="noreferrer">
-                  <span>{link.label}</span>
-                  <span className="governance-arrow">→</span>
-                </a>
+          <h2 className="h2">How HUUID Works</h2>
+          <p className="sub" style={{ fontSize: 20 }}>
+            One Healthcare Identity.
+            <br />
+            Lifetime Continuity of Care.
+          </p>
+
+          <div className="how-image">
+            <Image
+              src="/images/how-it-works.png"
+              alt="Five-step diagram of how HUUID works"
+              width={900}
+              height={360}
+              style={{ width: '100%', height: 'auto' }}
+            />
+          </div>
+
+          <div style={{ maxWidth: 700, margin: '0 auto', textAlign: 'left' }}>
+            <p className="body-text" style={{ fontSize: 17 }}>
+              Your HUUID is your trusted healthcare identity. When you visit any participating
+              healthcare facility anywhere in the world, your HUUID allows healthcare
+              professionals to recognise you immediately and discover where your medical history
+              already exists.
+            </p>
+            <p className="body-text" style={{ fontSize: 17 }}>
+              Your medical records never leave the healthcare institutions that created them.
+              Hospitals remain owners of hospital records. Laboratories remain owners of
+              laboratory records. Pharmacies remain owners of pharmacy records.
+            </p>
+            <p className="body-text" style={{ fontSize: 17 }}>
+              HUUID provides trusted identity, secure discovery, patient-controlled consent and
+              verifiable access.
+            </p>
+          </div>
+
+          <div className="stat-line">🛡 &ldquo;Your identity travels. Your medical records stay where they belong.&rdquo;</div>
+        </div>
+      </section>
+
+      {/* SECTION 4 — WHAT CHANGES FOR PATIENTS */}
+      <section className="section-grey" id="patients-detail">
+        <div className="split">
+          <div className="split-image">
+            <Image src="/images/patient-woman.png" alt="Patient smiling while using her phone" fill sizes="50vw" style={{ objectFit: 'cover' }} />
+          </div>
+          <div className="split-text">
+            <p className="eyebrow">FOR PATIENTS</p>
+            <h2 className="h2">Healthcare should never start from scratch.</h2>
+            <p className="body-text">
+              Receive better-informed care because healthcare professionals can build on your
+              medical history instead of beginning without it.
+            </p>
+            <ul className="check-list">
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Be recognised wherever you receive care.</span>
               </li>
-            ))}
-          </ul>
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Stop repeating your medical history.</span>
+              </li>
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Stop completing the same registration forms.</span>
+              </li>
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Reduce unnecessary repeat tests.</span>
+              </li>
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Receive safer treatment through better-informed clinical decisions.</span>
+              </li>
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Remain in control of who can access your healthcare information.</span>
+              </li>
+            </ul>
+            <p style={{ fontWeight: 700, color: 'var(--navy)', fontSize: 17 }}>
+              One trusted healthcare identity. For life.
+            </p>
+          </div>
         </div>
       </section>
 
-      {/* FOUR PATHS */}
-      <section className="section section-alt section-border-top">
-        <div className="container">
-          <p className="eyebrow">Participate</p>
-          <h2 className="section-title">How to participate</h2>
-          <div className="paths-grid">
-            {PATHS.map((p) => (
-              <div className="path-cell" key={p.role}>
-                <div className="path-role">{p.role}</div>
-                <p className="path-desc">{p.desc}</p>
-                <a
-                  className="path-link"
-                  href={p.href}
-                  target={p.href.startsWith('mailto:') ? undefined : '_blank'}
-                  rel="noreferrer"
-                >
-                  {p.label} →
-                </a>
+      {/* SECTION 5 — FOR HEALTHCARE FACILITIES */}
+      <section className="section-white" id="healthcare-facilities">
+        <div className="banner">
+          <Image src="/images/doctor-tablet.png" alt="Doctor reviewing a patient's history on a tablet" fill sizes="100vw" style={{ objectFit: 'cover' }} />
+          <div className="banner-overlay">
+            <p className="eyebrow">FOR HEALTHCARE FACILITIES</p>
+            <h2>Better Healthcare Begins Before Treatment</h2>
+            <p>
+              Every patient arrives with a story. HUUID helps your organisation understand that
+              story before treatment begins.
+            </p>
+          </div>
+        </div>
+
+        <div className="container banner-cards">
+          <div className="grid grid-4">
+            {FACILITY_CARDS.map((c) => (
+              <div className="card" key={c.title}>
+                <div className="card-icon">{c.icon}</div>
+                <h3 className="card-title">{c.title}</h3>
+                <p className="card-body">{c.body}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 6 — FOR GOVERNMENTS */}
+      <section className="section section-dark" id="governments">
+        <div className="container split" style={{ gap: 48, padding: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <p className="eyebrow eyebrow-bright">FOR GOVERNMENTS</p>
+            <h2 className="h2">
+              National Healthcare Interoperability
+              <br />
+              Without Centralising Medical Records
+            </h2>
+            <p className="sub" style={{ fontSize: 20 }}>
+              Governments need connected healthcare.
+              <br />
+              Not centralised healthcare databases.
+            </p>
+            <p className="body-text" style={{ color: 'var(--text-grey-light)' }}>
+              HUUID enables healthcare providers across a nation to recognise the same patient
+              while every healthcare institution continues to own and manage its own medical
+              records.
+            </p>
+
+            <div className="strong-points">
+              <div className="strong-point">
+                <span className="strong-point-dot">●</span>
+                <span>No national medical database to build.</span>
+              </div>
+              <div className="strong-point">
+                <span className="strong-point-dot">●</span>
+                <span>No patient data leaving the institutions that created it.</span>
+              </div>
+              <div className="strong-point">
+                <span className="strong-point-dot">●</span>
+                <span>No foreign company holding your citizens&apos; healthcare records.</span>
+              </div>
+            </div>
+
+            <ul className="bullet-list">
+              <li>Improve referrals</li>
+              <li>Improve national health planning</li>
+              <li>Support disease surveillance</li>
+              <li>Strengthen public health reporting</li>
+              <li>Reduce duplicate healthcare expenditure</li>
+              <li>Improve continuity of care</li>
+              <li>Protect national healthcare sovereignty</li>
+              <li>Connect healthcare without centralising it</li>
+            </ul>
+
+            <a href="mailto:josephtdnarnor@gmail.com?subject=Partner%20With%20HUUID" className="btn btn-white-outline" style={{ width: 'fit-content' }}>
+              Partner With HUUID →
+            </a>
+          </div>
+          <div className="split-image" style={{ minHeight: 420, borderRadius: 12, overflow: 'hidden' }}>
+            <Image src="/images/government-flags.png" alt="Government building with international flags" fill sizes="50vw" style={{ objectFit: 'cover' }} />
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 7 — FOR HEALTH INSURERS */}
+      <section className="section-white" id="insurers">
+        <div className="split">
+          <div className="split-image">
+            <Image src="/images/insurer-claims.png" alt="Insurance analyst reviewing a claims report" fill sizes="50vw" style={{ objectFit: 'cover' }} />
+          </div>
+          <div className="split-text">
+            <p className="eyebrow">FOR HEALTH INSURERS</p>
+            <h2 className="h2">
+              Trusted Claims Begin With
+              <br />
+              Trusted Healthcare Identity
+            </h2>
+            <p className="sub">
+              Every healthcare claim begins with a patient. HUUID makes that patient easier to
+              verify.
+            </p>
+            <p className="body-text">
+              Every identity resolution creates a permanent cryptographically signed audit record
+              before any response is returned.
+            </p>
+            <p className="body-text">
+              A healthcare visit can be verified against that audit trail.
+              <br />
+              Suspicious activity becomes easier to investigate.
+              <br />
+              Fraud becomes harder to hide.
+            </p>
+            <ul className="check-list">
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Verify healthcare interactions against permanent audit trails.</span>
+              </li>
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Immutable cryptographic records of every identity resolution.</span>
+              </li>
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Fraudulent claims become harder to hide and easier to detect.</span>
+              </li>
+              <li>
+                <span className="check-mark">✓</span>
+                <span>Faster reimbursement decisions built on trusted verified identity.</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 8 — FOR PARTNERS */}
+      <section className="section section-grey center" id="partners">
+        <div className="container">
+          <p className="eyebrow">FOR PARTNERS</p>
+          <h2 className="h2">
+            Built For Everyone
+            <br />
+            Who Touches Healthcare
+          </h2>
+
+          <div style={{ position: 'relative', height: 320, borderRadius: 12, overflow: 'hidden', margin: '32px 0 48px' }}>
+            <Image
+              src="/images/technology-team.png"
+              alt="Technology partners building on HUUID"
+              fill
+              sizes="100vw"
+              style={{ objectFit: 'cover' }}
+            />
+          </div>
+
+          <div className="grid grid-3" style={{ textAlign: 'left' }}>
+            {PARTNER_CARDS.map((c) => (
+              <div className="card" key={c.title}>
+                <div className="card-icon">{c.icon}</div>
+                <p className="card-subtitle">{c.subtitle}</p>
+                <h3 className="card-title">{c.title}</h3>
+                <p className="card-body">{c.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 9 — LIVE DEMONSTRATION */}
+      <section className="section section-dark center" id="demo">
+        <div className="container">
+          <p className="eyebrow eyebrow-bright">LIVE DEMONSTRATION</p>
+          <h2 className="h2">See HUUID In Action</h2>
+          <p className="sub" style={{ margin: '0 auto 48px' }}>
+            Experience how trusted healthcare identity works. This demonstration shows how a
+            participating healthcare facility securely recognises a patient without accessing or
+            storing medical records.
+          </p>
+          <LiveDemo />
+        </div>
+      </section>
+
+      {/* SECTION 10 — TRUST BY DESIGN */}
+      <section className="section section-white center" id="trust-by-design">
+        <div className="container">
+          <p className="eyebrow">TRUST BY DESIGN</p>
+          <h2 className="h2">Healthcare trust must be earned.</h2>
+
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', textAlign: 'left', marginTop: 40 }}>
+            <div className="w3c-card">
+              <span className="w3c-badge">W3C</span>
+              <h3>W3C Registered Standard</h3>
+              <p>
+                The did:huuid method is built on W3C Decentralized Identifier standards, enabling
+                globally interoperable, independently verifiable and vendor-neutral healthcare
+                identity.
+              </p>
+            </div>
+            <div className="trust-grid">
+              {TRUST_ITEMS.map((t) => (
+                <div className="trust-grid-item" key={t.label}>
+                  <span>{t.icon}</span>
+                  <span>{t.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* SECTION 11 — GOVERNANCE */}
+      <section className="section section-navy center">
+        <div className="container">
+          <h2 className="h2">Built For Nations. Governed For Trust.</h2>
+          <p className="sub" style={{ margin: '0 auto 48px' }}>HUUID is trusted healthcare infrastructure.</p>
+
+          <div className="principle-grid">
+            <div className="principle-card">
+              <div className="principle-icon">👤</div>
+              <p>Patients control consent.</p>
+            </div>
+            <div className="principle-card">
+              <div className="principle-icon">🏥</div>
+              <p>Healthcare institutions own their medical records.</p>
+            </div>
+            <div className="principle-card">
+              <div className="principle-icon">🏛</div>
+              <p>Governments retain sovereignty over national healthcare systems.</p>
+            </div>
+            <div className="principle-card">
+              <div className="principle-icon">💻</div>
+              <p>Technology providers build on open standards.</p>
+            </div>
+          </div>
+
+          <p className="governance-statement">
+            The protocol remains transparent, interoperable and free from vendor lock-in.
+            <br />
+            <br />
+            Healthcare trust belongs to everyone.
+          </p>
+        </div>
+      </section>
+
+      {/* SECTION 12 — JOIN THE NETWORK */}
+      <section className="section section-white center">
+        <div className="container">
+          <h2 className="h2">Join the Global Network</h2>
+          <p className="sub" style={{ margin: '0 auto' }}>
+            Healthcare is stronger when it begins with knowledge instead of uncertainty.
+            <br />
+            <br />
+            Whether you are a patient, healthcare provider, government, insurer, technology
+            company, university, employer, researcher or innovator, HUUID enables a future where
+            trusted healthcare identity improves care for everyone.
+            <br />
+            <br />
+            Join the growing global network building the trust infrastructure for healthcare.
+          </p>
+
+          <div className="cta-grid">
+            <div className="cta-card">
+              <div className="cta-icon">👤</div>
+              <h3>Get Your HUUID</h3>
+              <p>Create your identity today.</p>
+              <a href="/waitlist" className="btn btn-teal">
+                Get Your HUUID →
+              </a>
+            </div>
+            <div className="cta-card">
+              <div className="cta-icon">🤝</div>
+              <h3>Partner With HUUID</h3>
+              <p>Bring trusted identity to your community.</p>
+              <a
+                href="mailto:josephtdnarnor@gmail.com?subject=HUUID%20Partnership%20Inquiry"
+                className="btn btn-teal-outline"
+              >
+                Partner With HUUID →
+              </a>
+            </div>
+            <div className="cta-card">
+              <div className="cta-icon">🌐</div>
+              <h3>Explore the Platform</h3>
+              <p>See how HUUID can power your solutions.</p>
+              <a href="/debug/resolver" className="btn btn-teal-outline">
+                Explore the Platform →
+              </a>
+            </div>
           </div>
         </div>
       </section>
 
       {/* FOOTER */}
       <footer className="footer">
-        <div className="container">
-          <p className="footer-text">{W3C_STATUS}</p>
-          <p className="footer-text">
-            HUUID Protocol Working Group — josephtdnarnor@gmail.com
-          </p>
+        <div className="container footer-grid">
+          <div>
+            <div className="footer-brand">
+              <Image src="/images/logo-h.png" alt="HUUID" width={40} height={40} />
+              <span className="footer-brand-name">HUUID</span>
+            </div>
+            <p className="footer-brand-sub" style={{ marginBottom: 16 }}>
+              Human Universal Identity Directory
+            </p>
+            <p>One trusted healthcare identity for life.</p>
+            <p>Recognised at any participating healthcare facility, anywhere in the world.</p>
+          </div>
+
+          <div>
+            <p>
+              Healthcare should begin with your unique medical history because no two patients are
+              the same.
+            </p>
+            <p>Your medical records stay where they are created.</p>
+            <p>Your trusted healthcare identity travels with you.</p>
+          </div>
+
+          <div>
+            <h4>Links</h4>
+            <ul className="footer-links">
+              <li>
+                <a href="#">About Us</a>
+              </li>
+              <li>
+                <a href="#trust-by-design">Governance</a>
+              </li>
+              <li>
+                <a href="https://github.com/7evenbillion/huuid-resolver" target="_blank" rel="noreferrer">
+                  Developers
+                </a>
+              </li>
+              <li>
+                <a href="#">News</a>
+              </li>
+              <li>
+                <a href="mailto:josephtdnarnor@gmail.com">Contact</a>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <span className="w3c-badge">W3C</span>
+            <p style={{ marginTop: 8 }}>W3C Registered Standard</p>
+            <p style={{ marginTop: 0 }}>did:huuid</p>
+          </div>
+        </div>
+
+        <div className="footer-bottom">
+          <div className="footer-bottom-inner">
+            <span>© HUUID. Building the trust infrastructure for global healthcare.</span>
+            <ul className="footer-bottom-links">
+              <li>
+                <a href="#">About Us</a>
+              </li>
+              <li>
+                <a href="#trust-by-design">Governance</a>
+              </li>
+              <li>
+                <a href="https://github.com/7evenbillion/huuid-resolver" target="_blank" rel="noreferrer">
+                  Developers
+                </a>
+              </li>
+              <li>
+                <a href="#">News</a>
+              </li>
+              <li>
+                <a href="mailto:josephtdnarnor@gmail.com">Contact</a>
+              </li>
+            </ul>
+          </div>
         </div>
       </footer>
     </main>

@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'HUUID — Health Unique Universal ID',
+  title: 'HUUID — Human Universal Identity Directory',
   description:
-    'A neutral protocol for trusted healthcare identity. W3C-registered did:huuid resolution infrastructure for Ghana and beyond.',
+    'One trusted healthcare identity for life. Be recognised at any participating healthcare facility, anywhere in the world.',
 };
 
 export default function RootLayout({
