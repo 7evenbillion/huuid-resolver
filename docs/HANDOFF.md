@@ -8,6 +8,21 @@ fact from it externally.
 > resolved.** Independently confirmed July 13, 2026, merged by ottomorac —
 > see § 15. Safe to cite externally.
 
+> **CRITICAL, READ FIRST — the public homepage is live but the operator
+> says it looks bad, and no session has ever actually seen it render.**
+> The homepage was built and then "design-passed" this session based
+> entirely on DOM structure and computed-CSS-value checks — the
+> screenshot tool failed with the same error on every single attempt,
+> all session: `"Screenshot timed out after 5s: the Browser pane is not
+> displayed, so the page is not compositing frames. Display the pane and
+> retry."` No Claude Code session in this project has visually confirmed
+> what the homepage actually looks like. The operator's verdict, verbatim,
+> after the "verified" design pass shipped to production: *"the website
+> is not nice. the design is not nice the text layout is not nice text
+> formating not good, one lines on moible not centered etc etc too much
+> text typical ai website design no uniqness no flair no creativity."*
+> Full detail, root-cause hypothesis, and what NOT to repeat: **§ 16.**
+
 ---
 
 ## 1. Project identity
@@ -39,6 +54,7 @@ fact from it externally.
 - **Month 4 — COMPLETE.** EMR Stub middleware — all five security layers (P1-P4 + QR, see § 8) plus resolution tier 4 (offline QR fallback).
 - **Month 5 — COMPLETE**, including separate rate-limit counters per purposeCode (migration 011, advisory locks). Also includes: standard-resolution rate limiting (migration 010's predecessor gap, closed), the atomic count-then-insert race-condition fix (migration 010, row locking), `GET /1.0/audit/{huuid}`, the NHIA fraud-detection demo, and the full 8-attack red-team simulation (8/8 blocked in production, one — bulk harvest — only after a real fix).
 - **Month 6 — COMPLETE.** P5 (module isolation) built and verified in the EMR Stub — see § 8. All 5 Month 6 documentation/compliance tasks done — see § 12. 8 documents produced/updated to v0.3 (EMR Stub v0.1.3).
+- **Month 7 (public homepage) — IN PROGRESS, operator-rejected on first delivery.** Full 12-section homepage + `/waitlist` built, then a "design pass" (icons, shadows, fonts, hover states) shipped on top of it. Both were marked "verified in browser" — that verification never included an actual screenshot; see the banner above and **§ 16** for the full, honest account and what to do differently next.
 
 ---
 
@@ -297,3 +313,178 @@ date used everywhere in this document library — safe to cite externally,
 including in `HUUID-GOVERNMENT-PITCH-v0.3.docx`.** No further verification
 needed on this specific fact going forward, unless the PR is later
 reopened or amended (unlikely for a merged PR, but note it if seen).
+
+---
+
+## 16. Public homepage — operator says it's bad, no session has actually seen it. Start here.
+
+This section exists because the previous session made a real process
+error and the next session must not repeat it. Read this in full before
+touching `app/page.tsx`, `app/globals.css`, `app/waitlist/page.tsx`,
+`components/Icon.tsx`, `components/LiveDemo.tsx`, `components/Navigation.tsx`,
+or `components/WaitlistForm.tsx`.
+
+### 16.1 What actually happened, in order
+
+1. User asked for a full homepage rebuild from a long, verbatim copy
+   brief (hero through footer) plus a supplied image set and a brand
+   palette (teal `#0A6E5F`, navy `#1B3A6B`, bright teal `#00B8A2`, dark
+   section `#0F2744`). Explicit instruction: **do not change the copy,
+   every word comes from the brief.** Built as one large `app/page.tsx`
+   (12 sections) + `/waitlist` + a hardcoded (not live) demo terminal.
+   Committed as `a949fa9`.
+2. User then asked for a **design audit only, no code changes** — a
+   plain-English list of what looks generic/unfinished, what's working,
+   and prioritized improvements. That audit was delivered as text (see
+   the conversation transcript if you need the exact wording) and
+   correctly noted upfront: *"the Browser pane wasn't displayed on your
+   end, so I couldn't get an actual screenshot — everything below is
+   grounded in the real rendered DOM, computed styles, and measured
+   values, not a picture."* That caveat was real and should have been a
+   bigger red flag than it was treated as.
+3. User said "go ahead." A "design pass" was implemented: a custom
+   21-icon SVG set (`components/Icon.tsx`, replacing all emoji), a
+   serif display font on headings, stronger card shadows + hover lift,
+   a redesigned W3C "credential badge," a blinking terminal cursor, and
+   a split-layout rebuild of `/waitlist`. Committed as `c86714e`,
+   deployed to production, and reported as **"Done — deployed and
+   verified"** with a full checklist of typecheck/lint/build/DOM/console
+   checks — **every one of those checks was structural (DOM presence,
+   computed CSS values, absence of emoji characters, no console errors).
+   Not one of them was a look at an actual rendered pixel.** The
+   screenshot tool was attempted repeatedly across both the audit and
+   the design-pass verification and **failed identically every single
+   time**, with this exact error:
+   ```
+   screenshot failed: Screenshot timed out after 5s: the Browser pane is
+   not displayed, so the page is not compositing frames. Display the
+   pane and retry.
+   ```
+   This was noted honestly in the chat each time, but the work was still
+   reported as "verified" rather than "structurally verified, visual
+   appearance unconfirmed" — that framing was too weak given how much the
+   actual ask was about visual quality.
+4. User's real verdict, verbatim, after seeing the deployed result
+   themselves: *"the website is not nice. the design is not nice the
+   text layout is not nice text formating not good, one lines on moible
+   not centered etc etc too much text typical ai website design no
+   uniqness no flair no creativity."*
+5. A second screenshot attempt was made in response — **failed with the
+   identical error again.** User then interrupted and asked for this
+   handoff instead of further blind iteration, because they're closing
+   this session (context window full) and starting a new one.
+
+### 16.2 The one thing to fix in the new session before touching any code
+
+**Get a real screenshot working, or get real visual input from the
+operator, before claiming anything is "verified" or "fixed."** Options,
+in order of preference:
+- Ask the operator directly: *"Is the Browser pane visible/displayed on
+  your screen right now?"* — the tool's own error message states the
+  pane must be displayed client-side for frame compositing to work.
+  This may be a one-click fix on their end that nobody asked about.
+- If it still fails, ask the operator to paste in their own screenshot
+  (drag-and-drop image) of `https://huuid-resolver.vercel.app` — desktop
+  and mobile — so real defects can be diagnosed instead of guessed at.
+- Do **not** re-run the same `preview_start` → `navigate` →
+  `computer screenshot` sequence expecting a different result. It failed
+  identically on every attempt across two separate work sessions in this
+  same conversation. If it fails once more, stop and ask rather than
+  retrying a third/fourth/fifth time.
+- `read_page` (DOM tree), `get_page_text`, `read_console_messages`, and
+  `javascript_tool` (computed styles, measured dimensions) all work fine
+  in this environment — they were used extensively and are reliable.
+  They are just **not a substitute for seeing the page** when the actual
+  complaint is about visual design quality, typography, and layout feel.
+
+### 16.3 Concrete, un-actioned hypothesis for "one lines on mobile not centered"
+
+Never investigated or fixed this session — worth checking first, it's
+cheap to verify and a very plausible root cause. `app/page.tsx` has
+**many hard-coded manual `<br />` line breaks** inside headings,
+subheadings, and body paragraphs, sized by eye for desktop line length:
+- Hero headline: 3 forced lines.
+- "How HUUID Works" subhead: 2 forced lines.
+- "For Governments" heading (2 lines) and subhead (2 lines).
+- "For Health Insurers" heading: 2 forced lines.
+- "Built For Everyone / Who Touches Healthcare": 2 forced lines.
+- Section 2 body: "The same registration forms.<br/>The same medical
+  questions.<br/>..." (4 forced short lines) and the closing "Healthcare
+  should never begin with guesswork.<br/>..." (3 forced lines).
+- "Join the Global Network" body: 3 paragraphs joined with `<br/><br/>`.
+
+None of these adapt to viewport width. On a 375px mobile screen, a line
+break placed for a ~600px desktop container can produce short, awkward,
+orphaned-looking lines that read as "not centered" even when
+`text-align` is technically correct — the forced break itself is what
+looks wrong, not the alignment property. The likely fix: remove most of
+these manual breaks and let text wrap naturally against a sensible
+`max-width`, keeping manual breaks only where they're doing real
+typographic work (e.g. the 3-line hero headline, if that specific shape
+is wanted deliberately) and making those specific ones responsive
+(e.g. a span that collapses to `display: inline` + a space below a
+breakpoint, rather than a bare `<br/>`).
+
+### 16.4 On "too much text" and "no uniqueness/flair/creativity"
+
+Two different problems, worth telling apart:
+- **"Too much text"** is partly a copy-editing question, not just
+  layout. The homepage copy was dictated word-for-word by the operator
+  with an explicit **"do not change the copy"** instruction earlier in
+  this same session. That instruction may or may not still hold now that
+  the operator has seen the result and called it too text-heavy — **ask
+  before trimming or restructuring any copy.** Don't assume either way.
+- **"No uniqueness/flair/creativity, typical AI website design"** is a
+  real, structural critique of the whole visual direction, not something
+  the last design pass's changes (icons, shadows, a serif font, hover
+  states) were ever going to fix. Every one of the 12 sections currently
+  follows the identical rhythm — eyebrow label → heading → subhead →
+  body/list, alternating white/grey/dark-navy/navy backgrounds — which
+  is a extremely conventional B2C SaaS marketing-page pattern regardless
+  of how polished the details are. Genuine differentiation likely needs
+  bolder, less conventional moves: breaking the uniform section rhythm
+  (not every section needs the same layout skeleton), an asymmetric or
+  unexpected hero treatment instead of a clean 60/40 split, a more
+  distinctive/less-safe use of the teal/navy palette (right now it's
+  confined almost entirely to headings, buttons, and small icon chips),
+  and a genuinely distinctive treatment of the photography (duotone,
+  overlay, or cropping choices that don't look like default stock-photo
+  placement). This is a legitimate design-direction conversation to have
+  with the operator, not something to guess your way through alone —
+  consider proposing 2-3 concrete directional options and asking which
+  resonates, rather than unilaterally picking one.
+
+### 16.5 Tech stack / constraints that still apply
+
+- No framework, library, or dependency changes. The custom `Icon.tsx`
+  SVG set was built specifically to avoid adding an icon library
+  dependency — keep that pattern if more icons are needed, don't reach
+  for `lucide-react` or similar.
+  cf CLAUDE.md: locked stack is Next.js 14 App Router / Vercel /
+  Supabase / TypeScript — this still applies to any further homepage
+  work.
+- Current homepage state (both commits below are live in git history on
+  `main`, in that order): `a949fa9` (original 12-section build) →
+  `c86714e` (icon/shadow/font/badge design pass, currently deployed to
+  production and the one the operator is unhappy with).
+- `public/images/` has 11 of 12 originally-supplied images copied in
+  and in use; `world-map-dark.png` and `doctor-hospital.png` are present
+  but currently unused by any section (see git history for why).
+- The hardcoded demo terminal (`components/LiveDemo.tsx`) was
+  specifically praised in the design audit as the one thing already
+  working well — don't redesign it away without a specific reason to.
+- Waitlist table (`huuid_waitlist`, migration `012_waitlist.sql`) and
+  `POST /api/waitlist` are real, working, and verified against
+  production Supabase — not part of the visual complaint, leave the
+  functional wiring alone, only the layout/visual treatment is in
+  question.
+
+### 16.6 How to start the next session
+
+Bootstrap message to use:
+
+> "Read HANDOFF.md first, especially § 16. Then look at the live
+> homepage yourself (or ask me for a screenshot if your Browser pane
+> tools aren't compositing frames) before proposing or making any
+> changes. Then tell me what you actually see, and let's agree on a
+> direction together before you touch code."
