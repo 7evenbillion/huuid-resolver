@@ -1,100 +1,122 @@
 import Image from 'next/image';
 import Navigation from '@/components/Navigation';
 import LiveDemo from '@/components/LiveDemo';
+import Icon, { type IconName } from '@/components/Icon';
 
-const FACILITY_CARDS = [
+const FACILITY_CARDS: { icon: IconName; title: string; body: string }[] = [
   {
-    icon: '🏥',
+    icon: 'clipboard-check',
     title: 'Admissions & Registration',
     body: 'Register patients in seconds. Reduce duplicate records. Eliminate repeat registrations. Reduce queues. Improve patient flow. Spend less time on paperwork. Deliver a better patient experience from the moment of arrival.',
   },
   {
-    icon: '👨‍⚕️',
+    icon: 'cross-medical',
     title: 'Doctors',
     body: 'Treat informed patients instead of strangers. Discover previous diagnoses. Locate existing laboratory results. Locate previous imaging. Identify allergies. Review current medications. Make faster, better-informed clinical decisions.',
   },
   {
-    icon: '🔬',
+    icon: 'microscope',
     title: 'Specialists',
     body: 'Locate relevant clinical history immediately. Reduce time requesting records. Collaborate across healthcare institutions. Improve continuity of specialist care. Begin treatment with greater confidence.',
   },
   {
-    icon: '🧪',
+    icon: 'flask',
     title: 'Laboratories',
     body: 'Help clinicians discover existing results. Reduce unnecessary duplicate testing. Improve efficiency. Reduce patient costs. Support better clinical decision-making.',
   },
   {
-    icon: '💊',
+    icon: 'pill',
     title: 'Pharmacies',
     body: 'Improve medication safety. Identify allergies. Reduce prescription conflicts. Support safer dispensing decisions. Improve patient confidence.',
   },
   {
-    icon: '🩻',
+    icon: 'scan',
     title: 'Radiology',
     body: 'Locate existing CT scans, MRI studies, ultrasound reports and X-rays. Reduce unnecessary repeat imaging. Improve efficiency while lowering healthcare costs.',
   },
   {
-    icon: '📋',
+    icon: 'document',
     title: 'Finance & Billing',
     body: 'Verify patient identity immediately. Reduce billing disputes. Strengthen insurance verification. Improve auditability. Reduce revenue leakage. Accelerate claims processing.',
   },
   {
-    icon: '🏛',
+    icon: 'building',
     title: 'Hospital Administration',
     body: 'Maintain cleaner patient records. Reduce duplicate identities. Improve operational efficiency. Strengthen interoperability. Reduce administrative workload. Improve reporting.',
   },
 ];
 
-const PARTNER_CARDS = [
+const PARTNER_CARDS: { icon: IconName; title: string; subtitle: string; body: string }[] = [
   {
-    icon: '💻',
+    icon: 'laptop',
     title: 'Digital Health & Technology',
     subtitle: 'Build Once. Connect Everywhere.',
     body: 'HUUID provides open standards and secure APIs. Electronic Medical Records. Hospital Information Systems. Telemedicine. Pharmacy Systems. Laboratory Systems. AI. Analytics. Build once. Connect everywhere.',
   },
   {
-    icon: '🔬',
+    icon: 'microscope',
     title: 'Research Organisations',
     subtitle: 'Advance Research. Protect Privacy.',
     body: 'Advance healthcare research while protecting patient privacy. Recruit participants efficiently. Support longitudinal studies. Enable consent-driven participation.',
   },
   {
-    icon: '🏢',
+    icon: 'building',
     title: 'Employers',
     subtitle: 'Occupational Health. Simplified.',
     body: 'Support occupational health programmes. Simplify employee medical assessments. Verify authorised outcomes without exposing unnecessary medical information.',
   },
   {
-    icon: '🎓',
+    icon: 'graduation',
     title: 'Universities',
     subtitle: 'Student Health. Connected.',
     body: 'Support student healthcare services. Simplify vaccination verification. Improve medical clearance. Provide continuity for international students.',
   },
   {
-    icon: '🏦',
+    icon: 'bank',
     title: 'Banks & Financial Institutions',
     subtitle: 'Healthcare Finance. Verified.',
     body: 'Support healthcare financing through trusted verification. Verify healthcare events with patient consent. Improve healthcare loan processing.',
   },
   {
-    icon: '🌍',
+    icon: 'globe',
     title: 'Humanitarian Organisations',
     subtitle: 'Care Without Borders.',
     body: 'Deploy trusted healthcare identity in underserved and crisis environments. Support refugee healthcare continuity. Enable care without borders.',
   },
 ];
 
-const TRUST_ITEMS = [
-  { icon: '🔐', label: 'Patient-controlled consent' },
-  { icon: '📋', label: 'Immutable audit logs' },
-  { icon: '✓', label: 'Verifiable credentials' },
-  { icon: '📖', label: 'Open standards' },
-  { icon: '🛡', label: 'Privacy by design' },
-  { icon: '🏥', label: 'Healthcare institution ownership' },
-  { icon: '🌍', label: 'National healthcare sovereignty' },
-  { icon: '⚖', label: 'Transparent governance' },
-  { icon: '🔒', label: 'Modern cryptography' },
+const TRUST_ITEMS: { icon: IconName; label: string }[] = [
+  { icon: 'lock', label: 'Patient-controlled consent' },
+  { icon: 'clipboard-check', label: 'Immutable audit logs' },
+  { icon: 'check-circle', label: 'Verifiable credentials' },
+  { icon: 'book', label: 'Open standards' },
+  { icon: 'shield', label: 'Privacy by design' },
+  { icon: 'building', label: 'Healthcare institution ownership' },
+  { icon: 'globe', label: 'National healthcare sovereignty' },
+  { icon: 'scale', label: 'Transparent governance' },
+  { icon: 'lock', label: 'Modern cryptography' },
 ];
+
+function ArrowButton({
+  href,
+  className,
+  children,
+  target,
+  rel,
+}: {
+  href: string;
+  className: string;
+  children: string;
+  target?: string;
+  rel?: string;
+}) {
+  return (
+    <a href={href} className={className} target={target} rel={rel}>
+      {children}
+      <Icon name="arrow-right" size={16} className="icon-inline" />
+    </a>
+  );
+}
 
 export default function Home() {
   return (
@@ -104,7 +126,10 @@ export default function Home() {
       {/* SECTION 1 — HERO */}
       <section className="hero">
         <div className="hero-text">
-          <span className="badge">🛡 Trusted Healthcare Identity</span>
+          <span className="badge">
+            <Icon name="shield" size={14} className="icon-inline" />
+            Trusted Healthcare Identity
+          </span>
           <h1 className="hero-headline">
             Every patient is unique.
             <br />
@@ -118,20 +143,21 @@ export default function Home() {
             journey from scratch again.
           </p>
           <div className="hero-buttons">
-            <a href="/waitlist" className="btn btn-teal">
-              Get Your HUUID →
-            </a>
+            <ArrowButton href="/waitlist" className="btn btn-teal">
+              Get Your HUUID
+            </ArrowButton>
             <a href="#how-it-works" className="btn btn-teal-outline">
-              See How It Works ▶
+              See How It Works
+              <Icon name="play" size={14} className="icon-inline" />
             </a>
           </div>
           <div className="trust-row">
             <div className="trust-item">
-              <span>🛡</span>
+              <Icon name="shield" size={18} className="icon-inline" style={{ color: 'var(--teal)' }} />
               <span>Your medical records stay where they are created.</span>
             </div>
             <div className="trust-item">
-              <span>🌐</span>
+              <Icon name="globe" size={18} className="icon-inline" style={{ color: 'var(--teal)' }} />
               <span>Your trusted healthcare identity travels with you.</span>
             </div>
           </div>
@@ -231,7 +257,10 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="stat-line">🛡 &ldquo;Your identity travels. Your medical records stay where they belong.&rdquo;</div>
+          <div className="stat-line">
+            <Icon name="shield" size={22} className="icon-inline" style={{ marginRight: 8, verticalAlign: -4 }} />
+            &ldquo;Your identity travels. Your medical records stay where they belong.&rdquo;
+          </div>
         </div>
       </section>
 
@@ -299,7 +328,9 @@ export default function Home() {
           <div className="grid grid-4">
             {FACILITY_CARDS.map((c) => (
               <div className="card" key={c.title}>
-                <div className="card-icon">{c.icon}</div>
+                <div className="icon-badge">
+                  <Icon name={c.icon} size={22} />
+                </div>
                 <h3 className="card-title">{c.title}</h3>
                 <p className="card-body">{c.body}</p>
               </div>
@@ -355,9 +386,12 @@ export default function Home() {
               <li>Connect healthcare without centralising it</li>
             </ul>
 
-            <a href="mailto:josephtdnarnor@gmail.com?subject=Partner%20With%20HUUID" className="btn btn-white-outline" style={{ width: 'fit-content' }}>
-              Partner With HUUID →
-            </a>
+            <ArrowButton
+              href="mailto:josephtdnarnor@gmail.com?subject=Partner%20With%20HUUID"
+              className="btn btn-white-outline"
+            >
+              Partner With HUUID
+            </ArrowButton>
           </div>
           <div className="split-image" style={{ minHeight: 420, borderRadius: 12, overflow: 'hidden' }}>
             <Image src="/images/government-flags.png" alt="Government building with international flags" fill sizes="50vw" style={{ objectFit: 'cover' }} />
@@ -438,7 +472,9 @@ export default function Home() {
           <div className="grid grid-3" style={{ textAlign: 'left' }}>
             {PARTNER_CARDS.map((c) => (
               <div className="card" key={c.title}>
-                <div className="card-icon">{c.icon}</div>
+                <div className="icon-badge">
+                  <Icon name={c.icon} size={22} />
+                </div>
                 <p className="card-subtitle">{c.subtitle}</p>
                 <h3 className="card-title">{c.title}</h3>
                 <p className="card-body">{c.body}</p>
@@ -470,7 +506,15 @@ export default function Home() {
 
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', textAlign: 'left', marginTop: 40 }}>
             <div className="w3c-card">
-              <span className="w3c-badge">W3C</span>
+              <div className="credential-badge">
+                <span className="credential-badge-icon">
+                  <Icon name="check-circle" size={20} />
+                </span>
+                <span className="credential-badge-text">
+                  <strong>W3C Registered</strong>
+                  <span>Decentralized Identifier Method</span>
+                </span>
+              </div>
               <h3>W3C Registered Standard</h3>
               <p>
                 The did:huuid method is built on W3C Decentralized Identifier standards, enabling
@@ -481,7 +525,7 @@ export default function Home() {
             <div className="trust-grid">
               {TRUST_ITEMS.map((t) => (
                 <div className="trust-grid-item" key={t.label}>
-                  <span>{t.icon}</span>
+                  <Icon name={t.icon} size={20} className="icon-inline" style={{ color: 'var(--teal)' }} />
                   <span>{t.label}</span>
                 </div>
               ))}
@@ -498,19 +542,27 @@ export default function Home() {
 
           <div className="principle-grid">
             <div className="principle-card">
-              <div className="principle-icon">👤</div>
+              <div className="icon-badge icon-badge-dark" style={{ margin: '0 auto 12px' }}>
+                <Icon name="person" size={20} />
+              </div>
               <p>Patients control consent.</p>
             </div>
             <div className="principle-card">
-              <div className="principle-icon">🏥</div>
+              <div className="icon-badge icon-badge-dark" style={{ margin: '0 auto 12px' }}>
+                <Icon name="building" size={20} />
+              </div>
               <p>Healthcare institutions own their medical records.</p>
             </div>
             <div className="principle-card">
-              <div className="principle-icon">🏛</div>
+              <div className="icon-badge icon-badge-dark" style={{ margin: '0 auto 12px' }}>
+                <Icon name="scale" size={20} />
+              </div>
               <p>Governments retain sovereignty over national healthcare systems.</p>
             </div>
             <div className="principle-card">
-              <div className="principle-icon">💻</div>
+              <div className="icon-badge icon-badge-dark" style={{ margin: '0 auto 12px' }}>
+                <Icon name="laptop" size={20} />
+              </div>
               <p>Technology providers build on open standards.</p>
             </div>
           </div>
@@ -542,31 +594,37 @@ export default function Home() {
 
           <div className="cta-grid">
             <div className="cta-card">
-              <div className="cta-icon">👤</div>
+              <div className="icon-badge" style={{ margin: '0 auto 4px' }}>
+                <Icon name="person" size={22} />
+              </div>
               <h3>Get Your HUUID</h3>
               <p>Create your identity today.</p>
-              <a href="/waitlist" className="btn btn-teal">
-                Get Your HUUID →
-              </a>
+              <ArrowButton href="/waitlist" className="btn btn-teal">
+                Get Your HUUID
+              </ArrowButton>
             </div>
             <div className="cta-card">
-              <div className="cta-icon">🤝</div>
+              <div className="icon-badge" style={{ margin: '0 auto 4px' }}>
+                <Icon name="partnership" size={22} />
+              </div>
               <h3>Partner With HUUID</h3>
               <p>Bring trusted identity to your community.</p>
-              <a
+              <ArrowButton
                 href="mailto:josephtdnarnor@gmail.com?subject=HUUID%20Partnership%20Inquiry"
                 className="btn btn-teal-outline"
               >
-                Partner With HUUID →
-              </a>
+                Partner With HUUID
+              </ArrowButton>
             </div>
             <div className="cta-card">
-              <div className="cta-icon">🌐</div>
+              <div className="icon-badge" style={{ margin: '0 auto 4px' }}>
+                <Icon name="globe" size={22} />
+              </div>
               <h3>Explore the Platform</h3>
               <p>See how HUUID can power your solutions.</p>
-              <a href="/debug/resolver" className="btn btn-teal-outline">
-                Explore the Platform →
-              </a>
+              <ArrowButton href="/debug/resolver" className="btn btn-teal-outline">
+                Explore the Platform
+              </ArrowButton>
             </div>
           </div>
         </div>
@@ -620,9 +678,15 @@ export default function Home() {
           </div>
 
           <div>
-            <span className="w3c-badge">W3C</span>
-            <p style={{ marginTop: 8 }}>W3C Registered Standard</p>
-            <p style={{ marginTop: 0 }}>did:huuid</p>
+            <div className="credential-badge credential-badge-dark">
+              <span className="credential-badge-icon">
+                <Icon name="check-circle" size={18} />
+              </span>
+              <span className="credential-badge-text">
+                <strong>W3C Registered</strong>
+                <span>did:huuid</span>
+              </span>
+            </div>
           </div>
         </div>
 

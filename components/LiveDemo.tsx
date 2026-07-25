@@ -95,7 +95,11 @@ export default function LiveDemo() {
         </button>
 
         <div className="terminal-output" style={{ marginTop: 16 }}>
-          {visibleSteps === 0 && !done && <p style={{ color: '#8b93a7' }}>Awaiting request…</p>}
+          {visibleSteps === 0 && !done && (
+            <p style={{ color: '#8b93a7' }}>
+              Awaiting request<span className="terminal-cursor" />
+            </p>
+          )}
           {visibleSteps > 0 && <p>Resolving Identity...</p>}
           {STEPS.slice(0, visibleSteps).map((s) => (
             <p key={s}>
