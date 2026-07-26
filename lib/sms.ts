@@ -33,20 +33,24 @@ async function sendViaHubtel(phone: string, message: string): Promise<{ messageI
     throw new Error('Hubtel credentials are not configured.');
   }
 
-  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  // Host confirmed against Hubtel's own official SDK (github.com/hubtel/hubtel-sms-java,
-  // ApiHost.java's default hostname) -- "api.hubtel.com" (the original spec's host)
-  // returns "Provided ClientId could not be found" for a real, correctly-formatted
-  // account, which is what "smsc.hubtel.com" is the actual live SMS host.
-  const res = await fetch('https://smsc.hubtel.com/v1/messages/send', {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${auth}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ From: senderId, To: phone, Content: message }),
-    cache: 'no-store',
-  });
+  // GET with query-string params (clientid/clientsecret/from/to/content) --
+  // NOT POST+JSON+BasicAuth. Confirmed against a sibling Cedimaker project
+  // (cedimaker-legacy-ui/lib/sms.ts) that sends real, confirmed-delivered
+  // SMS today with this exact same Hubtel account. The POST+JSON+BasicAuth
+  // shape (matching the original build spec, and Hubtel's own Java SDK
+  // structure) returns HTTP 200 with status:0 and a real messageId+charge
+  // -- Hubtel accepts and bills the request -- but apparently does not
+  // read To/Content from a JSON body on this endpoint, so nothing actually
+  // reaches a real handset. This was hard to diagnose because the failure
+  // is silent: no error, a real charge, a real messageId, just no delivery.
+  const url = new URL('https://smsc.hubtel.com/v1/messages/send');
+  url.searchParams.set('clientid', clientId);
+  url.searchParams.set('clientsecret', clientSecret);
+  url.searchParams.set('from', senderId);
+  url.searchParams.set('to', phone);
+  url.searchParams.set('content', message);
+
+  const res = await fetch(url.toString(), { cache: 'no-store' });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -61,13 +65,6 @@ async function sendViaHubtel(phone: string, message: string): Promise<{ messageI
     networkId?: string | null;
   };
 
-  // A 2xx HTTP status does NOT mean the message was actually queued/sent --
-  // Hubtel's own response carries a separate domain-level status field
-  // (0 == "request submitted successfully" per their docs). A non-zero
-  // status, a null messageId, or a null networkId with an HTTP 200 all
-  // indicate the message was accepted by the endpoint but not genuinely
-  // dispatched (e.g. insufficient account balance) -- this was silently
-  // treated as success before this fix.
   console.log(
     JSON.stringify({
       level: 'info',
