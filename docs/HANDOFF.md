@@ -54,7 +54,8 @@ fact from it externally.
 - **Month 4 — COMPLETE.** EMR Stub middleware — all five security layers (P1-P4 + QR, see § 8) plus resolution tier 4 (offline QR fallback).
 - **Month 5 — COMPLETE**, including separate rate-limit counters per purposeCode (migration 011, advisory locks). Also includes: standard-resolution rate limiting (migration 010's predecessor gap, closed), the atomic count-then-insert race-condition fix (migration 010, row locking), `GET /1.0/audit/{huuid}`, the NHIA fraud-detection demo, and the full 8-attack red-team simulation (8/8 blocked in production, one — bulk harvest — only after a real fix).
 - **Month 6 — COMPLETE.** P5 (module isolation) built and verified in the EMR Stub — see § 8. All 5 Month 6 documentation/compliance tasks done — see § 12. 8 documents produced/updated to v0.3 (EMR Stub v0.1.3).
-- **Month 7 (public homepage) — IN PROGRESS, operator-rejected on first delivery.** Full 12-section homepage + `/waitlist` built, then a "design pass" (icons, shadows, fonts, hover states) shipped on top of it. Both were marked "verified in browser" — that verification never included an actual screenshot; see the banner above and **§ 16** for the full, honest account and what to do differently next.
+- **Month 7 (public homepage) — IN PROGRESS, operator-rejected on first delivery.** Full 12-section homepage + `/waitlist` built, then a "design pass" (icons, shadows, fonts, hover states) shipped on top of it. Both were marked "verified in browser" — that verification never included an actual screenshot; see the banner above and **§ 16** for the full, honest account and what to do differently next. Homepage rebuild was drafted this session (mockup-directed restructure) but **reverted at the operator's request** before any commit — see § 17 for what was drafted and thrown away, kept only as a record so it isn't rebuilt from scratch blind.
+- **Patient self-enrollment + Healthcare Identity Card — BUILT, NOT YET DEPLOYED.** Full self-service enrollment flow (phone OTP → WebAuthn/PIN → client-side Ed25519 keygen → HUUID + DID Document → Healthcare Identity Card with QR/PDF/PNG) plus a recovery flow. Code is complete, typechecks, lints, and builds clean. **Not yet live** — migrations 013/014 have not been applied to the real Supabase project, and none of the new required environment variables are set. See **§ 18** for the full honest account: what was built, real protocol/compliance deviations from HUUID-RESOLUTION-SPEC-v0.3 and HUUID-COMPLIANCE-v0.1, and exactly what's needed before this can go live.
 
 ---
 
@@ -71,6 +72,8 @@ fact from it externally.
 | GET | `/1.0/audit/{huuid}` |
 | GET | `/debug/resolver` — temporary, remove before public launch |
 | GET | `/debug/break-glass` — temporary, remove before public launch |
+| GET | `/enroll`, `/enroll/verify`, `/enroll/secure`, `/enroll/ready`, `/enroll/card`, `/enroll/recover` — **built, not yet deployed**, see § 18 |
+| POST | `/api/enroll/start`, `/api/enroll/verify-otp`, `/api/enroll/resend-otp`, `/api/enroll/register`, `/api/enroll/session-status`, `/api/enroll/recover/start`, `/api/enroll/recover/verify-otp`, `/api/enroll/recover/fetch` — **built, not yet deployed**, see § 18 |
 
 All `/1.0/...` paths are Next.js rewrites to `/api/1.0/...` handlers
 (`next.config.mjs`) — the W3C DID Resolution spec mandates the
@@ -91,6 +94,11 @@ spec-compliant path at the root without a `/api` prefix.
 | `huuid_bg_notifications` | Patient notification queue |
 | `huuid_facility_suspensions` | Break-Glass-specific facility suspension records |
 | `huuid_stub_integrity_log` | **Immutable** — Stub integrity-violation alerts, signature-verified before insert |
+| `huuid_waitlist` | Homepage "Get Your HUUID" interest-signal capture (not the enrollment flow itself) |
+| `huuid_patients` | **Built, not yet applied to the real DB — see § 18.** Self-enrolled patient records. Name/DOB/sex-at-birth/emergency-contact encrypted column-level via `pgcrypto`; phone stored as an HMAC-SHA256 lookup hash + a separate encrypted reversible copy. |
+| `huuid_otp_verifications` | **Built, not yet applied.** Phone-hashed, short-lived OTP records (enrollment/recovery/login). |
+| `huuid_enrollment_rate_limits` | **Built, not yet applied.** IP-hashed rate-limit log for enrollment/registration/recovery attempts. |
+| `huuid_audit_enrollment` | **Immutable. Built, not yet applied.** Enrollment-flow audit trail, separate from `huuid_audit_log`. |
 
 All tables: RLS enabled, zero anon/authenticated access, explicit GRANT
 blocks (required post-May-30-2026 Supabase change — omitting them causes
@@ -113,6 +121,13 @@ a silent permission-denied error, no exception thrown).
 | `009_stub_integrity_immutable.sql` | Immutability trigger on `huuid_stub_integrity_log` |
 | `010_atomic_rate_limit.sql` | `increment_bg_rate_limit`, `increment_resolution_rate_limit` — row-locked atomic counters |
 | `011_separate_rate_limits.sql` | `purpose_code` column on `huuid_request_log`; `increment_resolution_rate_limit` rebuilt with advisory locks, scoped per (facility, purpose) |
+| `012_waitlist.sql` | `huuid_waitlist` — homepage interest-signal capture |
+| `013_patient_enrollment.sql` | **Written, NOT YET APPLIED to the real Supabase project.** `huuid_patients`, `huuid_otp_verifications`, `huuid_enrollment_rate_limits`, `huuid_audit_enrollment`, pgcrypto column encryption, all RPC functions. See § 18. |
+| `014_otp_cleanup.sql` | **Written, NOT YET APPLIED.** `huuid_cleanup_expired_otps()` — needs an external scheduler (Vercel Cron or pg_cron) to actually invoke it; nothing calls it automatically yet. |
+
+**Renumbering note:** the enrollment build brief specified
+`012_patient_enrollment.sql` / `013_otp_cleanup.sql` — both were
+renumbered to 013/014 since 012 was already taken by `012_waitlist.sql`.
 
 **Filename note:** migrations 008 and 009 are named
 `008_stub_integrity_override.sql` and `009_stub_integrity_immutable.sql`
@@ -488,3 +503,276 @@ Bootstrap message to use:
 > tools aren't compositing frames) before proposing or making any
 > changes. Then tell me what you actually see, and let's agree on a
 > direction together before you touch code."
+
+---
+
+## 17. Homepage rebuild — drafted, then reverted (not live, not in git)
+
+Later the same session as § 16: the operator pasted real screenshots of
+both the live production homepage (`c86714e`) and a separate design
+mockup, asked for a comparison, then approved a full section-by-section
+rebuild toward the mockup's direction (hero wordmark + punchy 3-line
+statement, a centered "poem" block replacing the cramped "Why HUUID
+Exists" paragraph, a 3-card "How It Works", an auto-playing live demo, a
+new "Integrate in minutes" developer section with real curl/JSON/audit
+examples, a condensed 4-card trust row, a merged governance/join section)
+— with the stats bar explicitly excluded per the operator's instruction.
+
+**This was fully implemented, typechecked, linted, and built clean — then
+the operator said to stop and revert before it was shown to them or
+deployed anywhere.** `git checkout --` was used to restore
+`app/page.tsx`, `app/globals.css`, `components/LiveDemo.tsx`,
+`components/Navigation.tsx` to their exact pre-rebuild state, and the one
+newly-created file (`components/CopyButton.tsx`) was deleted. `git
+status` was confirmed clean afterward. **Nothing was ever committed or
+pushed** — production is untouched, still exactly `c86714e`.
+
+This section exists so a future session doesn't have to rediscover the
+mockup-comparison findings from scratch if the operator returns to this
+work: the mockup's specific structural fixes (hero confidence, the poem
+block, live-demo autoplay, developer code section, condensed trust row)
+were judged directionally correct and worth revisiting, but the operator
+explicitly wants to come back to this later, after backend work — don't
+restart it unprompted.
+
+---
+
+## 18. Patient self-enrollment + Healthcare Identity Card — built, not deployed
+
+Built in the session immediately following § 17's revert, from a detailed
+operator-supplied spec (self-enrollment form → phone OTP → WebAuthn/PIN →
+client-side Ed25519 keygen → HUUID + DID Document → Healthcare Identity
+Card with QR/PDF/PNG, plus a recovery flow). Framed by the operator as
+Tier 1 (self-enrolled) of a broader universal identity protocol, healthcare
+being only the first vertical.
+
+**Status: code-complete, typechecks/lints/builds clean, NOT live.**
+Nothing in this section has been deployed, and the new migrations have
+NOT been applied to the real Supabase project — see § 18.6.
+
+### 18.1 Real conflicts found and how they were resolved
+
+Before writing any code, HANDOFF.md, all `.docx` spec documents (read via
+`python-docx`, since `pandoc` isn't installed in this environment — see
+§ 18.7), and the existing codebase conventions (`lib/multibase.ts`,
+`lib/facility-jwt.ts`, migrations 001-012) were read in full. Two
+substantive conflicts surfaced, both flagged to the operator before
+building rather than resolved silently:
+
+1. **Protocol conflict.** HUUID-RESOLUTION-SPEC-v0.3 § 5 documents an
+   institutionally-anchored issuance model only — HUUIDs issued at an L3
+   Facility terminal, mandatory biometric commitment on every DID
+   Document. There is no self-enrollment tier anywhere in the documented
+   trust hierarchy (L0-L4). The Tier 1 self-enrolled / Tier 2
+   facility-verified model built here is a genuine new protocol
+   extension, not an implementation of what v0.3 says. It directly
+   answers **Pre-Pilot Blocker 6** ("Patient contact store for SMS...
+   needs a patient registration flow"), which the spec already flags as
+   open — but HUUID-RESOLUTION-SPEC-v0.3 needs a formal addendum
+   documenting this new tier before pilot. **Not done as part of this
+   build** — flagged, not silently written into the spec doc.
+2. **Compliance conflict.** HUUID-COMPLIANCE-v0.1's entire HIPAA/GDPR
+   posture, already pitched to governments, rests on "the resolver holds
+   identity pointers only... no Article 9 special category data." The new
+   `huuid_patients` table stores full legal name, date of birth, and sex
+   at birth — health-context data under GDPR Art. 9 — which breaks that
+   claim for self-enrolled patients specifically. Asked the operator how
+   to reconcile this; operator asked for best-practice judgment. Resolved
+   with **both** mitigations: (a) column-level `pgcrypto` encryption
+   (`pgp_sym_encrypt`/`pgp_sym_decrypt`) on name/DOB/sex-at-birth/
+   emergency-contact fields, not just Supabase's disk-level encryption,
+   so "PII encrypted at rest" is true at the field level (GDPR Art. 32,
+   ISO 27001 A.8.24); (b) this HANDOFF section, flagging that
+   HUUID-COMPLIANCE-v0.1.docx itself still needs a formal addendum
+   carving out `huuid_patients` as a new, separate data-controller
+   relationship before pilot. **The compliance doc has NOT been edited**
+   — that's a deliberate scope boundary, not an oversight.
+
+### 18.2 New dependencies added (with operator sign-off)
+
+This project has an established "no new dependency without justification"
+pattern (`components/Icon.tsx` was hand-built specifically to avoid one).
+Three were added here, all asked about first:
+
+- **`zod`** — CLAUDE.md Rule 17 itself mandates Zod for form/input
+  validation; not really optional given the project's own governing
+  rules. All enrollment endpoints validate via `lib/enrollment-schemas.ts`.
+- **`qrcode`** — QR generation for the Healthcare Identity Card.
+  Hand-rolling Reed-Solomon error correction was judged too high-risk for
+  something scanned at hospitals. Client-side generation only, nothing
+  leaves the browser.
+- **`jspdf`** — one-click "Download PDF" button, per the operator's
+  explicit preference for ease-of-use over dependency minimalism for this
+  specific interaction. A `window.print()` fallback (sized to ISO 7810 via
+  `@media print` CSS) is wired in for the case where jsPDF throws on a
+  given device — see `app/enroll/card/page.tsx`'s `handleDownloadPdf`.
+
+`npm audit` after adding all three: 16 pre-existing high-severity findings,
+all in `next`/`eslint-config-next` (confirmed via `git diff package.json`
+that none of the three new packages introduced any of them) — pre-existing
+condition, not something this build introduced or silently patched by
+upgrading Next.js mid-task. Worth a line on the pre-pilot checklist.
+
+### 18.3 Real technical deviations from the literal brief
+
+- **WebAuthn does not replace the PIN today.** Real symmetric key
+  material out of a platform authenticator requires the WebAuthn `prf`
+  extension, which is not universally supported (inconsistent across
+  Android Chrome versions and Safari releases). Where PRF output IS
+  available, it's used directly as the AES-256-GCM key (no PBKDF2 needed
+  — stretching already-uniform 32 bytes further adds nothing). Where it
+  ISN'T, a WebAuthn credential is still created (for a future "quick
+  unlock" convenience), but the user is still asked for a PIN as the
+  actual encryption secret — see `lib/client/webauthn.ts`'s header
+  comment and `components/enroll/SecureIdentity.tsx`. **This was not
+  measured against real devices in this build** — field-test PRF support
+  before any pilot messaging claims "biometric alone, no PIN."
+- **Ed25519 Web Crypto support was not measured against real devices
+  either.** `window.crypto.subtle.generateKey({name:'Ed25519'})` is
+  feature-detected (`lib/client/keypair.ts`'s `isEd25519Supported`) with a
+  clean "please use a different browser/device" message if unsupported —
+  but whether this actually blocks a meaningful fraction of the project's
+  real low-end-Android target market is unknown until tested on real
+  devices.
+- **`publicKeyMultibase` uses the multicodec-prefixed encoding
+  (`0xed 0x01` + raw 32 bytes), not the brief's literal
+  `"z" + base58(pubkey)` pseudocode.** Confirmed against
+  `lib/multibase.ts`'s `decodeEd25519PublicKeyMultibase` (already used by
+  the live resolver's JWT verification) before writing
+  `lib/client/keypair.ts` — omitting the multicodec prefix would have
+  produced DID Documents the resolver's own code couldn't parse.
+- **"Base58Check" (with checksum) was interpreted as plain Base58** (via
+  the already-installed `bs58` package), matching what
+  `lib/multibase.ts` and the migration 001 seed data already use
+  elsewhere in this codebase — not the checksummed variant literally
+  named in HUUID-RESOLUTION-SPEC-v0.3 § 1.1.
+- **The QR code on the Healthcare Identity Card encodes the bare HUUID
+  string only** ("Generated from full HUUID string" per the brief) — this
+  is NOT the cryptographically signed offline emergency token described in
+  HUUID-RESOLUTION-SPEC-v0.3 § 4 (blood type/allergies, EdDSA-signed,
+  resolver-key-verified offline, already built for the EMR Stub). That
+  remains blocked on **Pre-Pilot Blocker 2** (dedicated resolver signing
+  key + a real card-issuance endpoint) — not attempted here, and the two
+  should not be confused with each other.
+- **PNG/PDF card export draws directly to an HTML `<canvas>`**
+  (`lib/client/card-canvas.ts`), not a DOM snapshot of the visible card —
+  avoids needing `html2canvas` (a fourth new dependency). One rendering
+  function is reused for both the PNG download and as the raster source
+  jsPDF places into the PDF.
+- **Recovery is "verify PIN unlocks the existing blob," not "rotate to a
+  literal new PIN."** The brief's Step 4 ("Create new PIN") reads, on
+  inspection, as re-entering the *same* PIN on a new device/session — a
+  genuinely new PIN cannot decrypt a blob encrypted under the old one by
+  construction (AES-GCM). Built as: verify phone via OTP, fetch the
+  encrypted blob, attempt decryption client-side with an entered PIN,
+  success/failure messaging exactly per the brief's wording. **No PIN
+  rotation/re-encryption was implemented** — out of scope as understood,
+  not an oversight.
+- **No dedicated GDPR self-service erasure endpoint was built**, though
+  the DB function (`huuid_gdpr_erase_patient` in migration 013) is
+  ready — it nulls all encrypted PII columns, frees the phone hash for
+  reuse, and revokes both `huuid_patients` and the corresponding
+  `huuid_did_documents` row (so the resolver's existing 410 "deactivated"
+  path applies automatically). This wasn't in the 30-item Definition of
+  Done and was deprioritized given the size of everything else — worth a
+  pre-pilot checklist line, not a silent gap.
+- **A `keypair_generated` audit action exists in the
+  `huuid_audit_enrollment` CHECK constraint but nothing writes it** — key
+  generation happens entirely client-side with no server round-trip at
+  that exact moment, and adding a dedicated beacon call for it was judged
+  not worth the complexity given `enrollment_completed` already captures
+  the meaningful audit record. Minor, disclosed gap.
+
+### 18.4 Known, inherent security limitation (not a bug)
+
+A 6-digit PIN is only 1,000,000 possible values. Even at 310,000 PBKDF2
+iterations, if the `encrypted_private_key` blob is ever exfiltrated (e.g.
+a Supabase breach), brute-forcing the full PIN space is realistically
+feasible for a motivated attacker on modest hardware within hours — this
+is what the brief specified, built faithfully, but it is NOT
+equivalent-strength to the WebAuthn+PRF path. Needs a pre-pilot checklist
+line as a documented residual risk, not silently presented as
+equal-strength security.
+
+### 18.5 What was actually verified, and what wasn't
+
+Verified for real, this session:
+
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` — all clean.
+- The `/enroll` form renders correctly in a real browser (structural DOM
+  check — `get_page_text`/`read_page`, not a screenshot; see the
+  Browser-pane screenshot-tool limitation still noted in § 16), all
+  fields/labels/regulatory-notice/consent copy present, Ghana
+  geo-detection default working, no console errors.
+- **Real, live server behavior against the actual connected Supabase
+  project**: `POST /api/enroll/start` was hit directly. Since migration
+  013 hasn't been applied yet, `huuid_check_and_log_rate_limit` genuinely
+  doesn't exist in the real database — and the fail-closed rate-limit
+  design (`lib/enrollment-rate-limit.ts`: "if the check itself is broken,
+  do not allow the attempt through") correctly rejected the request with
+  a clean, generic 429, with the real Postgres error only in server logs,
+  never exposed to the client. This is real evidence the fail-closed
+  behavior works, not an assumption.
+
+**NOT verified — genuinely blocked without operator action:**
+
+- The full happy path (OTP send → verify → keygen → register → card) —
+  blocked on migrations 013/014 not being applied to the real Supabase
+  project, and on `HUUID_PII_ENCRYPTION_KEY` / `HUUID_SESSION_ENCRYPTION_KEY`
+  / Hubtel / Africa's Talking / Resend credentials not being set in
+  `.env.local` or Vercel. None of these were set or applied without
+  asking, since both are consequential actions on shared/real
+  infrastructure.
+- Real SMS delivery via Hubtel or the Africa's Talking fallback.
+- WebAuthn on an actual biometric-capable device (PRF support especially).
+- PDF quality/reliability on an actual mobile browser.
+- QR code scanning with a real phone camera.
+- Whether Ed25519 Web Crypto genuinely works across this project's real
+  low-end-Android target devices.
+
+### 18.6 What's needed before this can go live
+
+1. Apply migrations `013_patient_enrollment.sql` and `014_otp_cleanup.sql`
+   to the real Supabase project — not done automatically, since applying
+   migrations to a shared, real, ~30-app production database is a
+   consequential action requiring explicit operator go-ahead.
+2. Set `HUUID_PII_ENCRYPTION_KEY` and `HUUID_SESSION_ENCRYPTION_KEY`
+   (both ≥32 chars, e.g. `openssl rand -base64 32`) in `.env.local` and
+   Vercel Production/Preview/Development.
+3. Set Hubtel/Africa's Talking/Resend credentials. Note: the operator's
+   global CLAUDE.md lists a Tier 1 default Hubtel Client ID/Secret shared
+   across the whole Cedimaker ecosystem — this project's own
+   `.env.local` currently has neither (confirmed directly, matching
+   HANDOFF's existing Blocker 1 note about `RESEND_API_KEY`), so a future
+   session should apply that default here rather than re-asking the
+   operator, per that document's own instruction — this session did not
+   do so itself since editing real credential files wasn't asked for.
+4. Wire `huuid_cleanup_expired_otps()` (migration 014) to an actual
+   scheduler — nothing calls it automatically yet.
+5. Field-test WebAuthn PRF support, Ed25519 Web Crypto support, SMS
+   delivery, PDF quality, and QR scannability on real devices before any
+   pilot messaging relies on them.
+6. Draft the HUUID-RESOLUTION-SPEC and HUUID-COMPLIANCE addenda described
+   in § 18.1 — not done as part of this build.
+
+### 18.7 New files, for reference
+
+Migrations: `013_patient_enrollment.sql`, `014_otp_cleanup.sql`.
+Libs: `lib/pii.ts`, `lib/otp.ts`, `lib/sms.ts`, `lib/encrypted-cookie.ts`,
+`lib/enrollment-session.ts`, `lib/recovery-session.ts`,
+`lib/enrollment-rate-limit.ts`, `lib/country-detection.ts`,
+`lib/regulatory-notices.ts`, `lib/countries.ts`, `lib/enrollment-audit.ts`,
+`lib/enrollment-schemas.ts`, `lib/client/webauthn.ts`,
+`lib/client/keypair.ts`, `lib/client/card-canvas.ts`.
+API routes: `app/api/enroll/{start,verify-otp,resend-otp,register,
+session-status}/route.ts`, `app/api/enroll/recover/{start,verify-otp,
+fetch}/route.ts`.
+Screens: `app/enroll/{page,verify/page,secure/page,ready/page,card/page,
+recover/page}.tsx`, `components/enroll/{EnrollLayout,CountrySelect,
+EnrollmentForm,OtpInput,SecureIdentity,IdentityCard,QrModal}.tsx`,
+`components/CopyButton.tsx` equivalent not reused (that one was reverted
+with the homepage rebuild in § 17 — a separate, unrelated component).
+Docx extraction was done via a throwaway `python-docx` script in the
+scratchpad directory (not committed) since `pandoc` isn't installed in
+this environment — worth installing it for future sessions that need to
+read `.docx` files, or documenting `python-docx` as the fallback.
