@@ -53,8 +53,40 @@ async function sendViaHubtel(phone: string, message: string): Promise<{ messageI
     throw new Error(`Hubtel returned ${res.status}: ${body.slice(0, 200)}`);
   }
 
-  const data = (await res.json().catch(() => ({}))) as { messageId?: string };
-  return { messageId: data.messageId ?? `hubtel-${Date.now()}` };
+  const data = (await res.json().catch(() => ({}))) as {
+    messageId?: string | null;
+    status?: number;
+    statusDescription?: string;
+    rate?: number;
+    networkId?: string | null;
+  };
+
+  // A 2xx HTTP status does NOT mean the message was actually queued/sent --
+  // Hubtel's own response carries a separate domain-level status field
+  // (0 == "request submitted successfully" per their docs). A non-zero
+  // status, a null messageId, or a null networkId with an HTTP 200 all
+  // indicate the message was accepted by the endpoint but not genuinely
+  // dispatched (e.g. insufficient account balance) -- this was silently
+  // treated as success before this fix.
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      action: 'sms_hubtel_response',
+      status: data.status,
+      statusDescription: data.statusDescription,
+      rate: data.rate,
+      networkId: data.networkId,
+      hasMessageId: Boolean(data.messageId),
+    })
+  );
+
+  if (data.status !== 0 || !data.messageId) {
+    throw new Error(
+      `Hubtel accepted the request but did not confirm delivery: status=${data.status} "${data.statusDescription}" rate=${data.rate} networkId=${data.networkId}`
+    );
+  }
+
+  return { messageId: data.messageId };
 }
 
 async function sendViaAfricasTalking(phone: string, message: string): Promise<{ messageId: string }> {
