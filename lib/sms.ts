@@ -34,7 +34,11 @@ async function sendViaHubtel(phone: string, message: string): Promise<{ messageI
   }
 
   const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-  const res = await fetch('https://api.hubtel.com/v1/messages/send', {
+  // Host confirmed against Hubtel's own official SDK (github.com/hubtel/hubtel-sms-java,
+  // ApiHost.java's default hostname) -- "api.hubtel.com" (the original spec's host)
+  // returns "Provided ClientId could not be found" for a real, correctly-formatted
+  // account, which is what "smsc.hubtel.com" is the actual live SMS host.
+  const res = await fetch('https://smsc.hubtel.com/v1/messages/send', {
     method: 'POST',
     headers: {
       Authorization: `Basic ${auth}`,
