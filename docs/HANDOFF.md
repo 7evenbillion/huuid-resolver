@@ -537,7 +537,7 @@ restart it unprompted.
 
 ---
 
-## 18. Patient self-enrollment + Healthcare Identity Card — built, not deployed
+## 18. Patient self-enrollment + Healthcare Identity Card — LIVE, verified end-to-end
 
 Built in the session immediately following § 17's revert, from a detailed
 operator-supplied spec (self-enrollment form → phone OTP → WebAuthn/PIN →
@@ -546,9 +546,13 @@ Card with QR/PDF/PNG, plus a recovery flow). Framed by the operator as
 Tier 1 (self-enrolled) of a broader universal identity protocol, healthcare
 being only the first vertical.
 
-**Status: code-complete, typechecks/lints/builds clean, NOT live.**
-Nothing in this section has been deployed, and the new migrations have
-NOT been applied to the real Supabase project — see § 18.6.
+**Status: LIVE in production, verified end-to-end with a real phone number
+and a real received SMS OTP** (see § 18.8 for the full real-device test,
+including the operator's own phone). Migrations 013/014 are applied to
+the live Supabase project. All required env vars are set in Vercel
+Production/Preview/Development. This was NOT a trivial deploy — getting
+a real SMS to actually arrive took three real bugs found and fixed live
+against production; see § 18.8 before touching `lib/sms.ts` again.
 
 ### 18.1 Real conflicts found and how they were resolved
 
@@ -696,64 +700,149 @@ equal-strength security.
 
 ### 18.5 What was actually verified, and what wasn't
 
-Verified for real, this session:
+Verified for real, end to end, in production, this session (see § 18.8
+for the full narrative):
 
-- `npx tsc --noEmit`, `npm run lint`, `npm run build` — all clean.
-- The `/enroll` form renders correctly in a real browser (structural DOM
-  check — `get_page_text`/`read_page`, not a screenshot; see the
-  Browser-pane screenshot-tool limitation still noted in § 16), all
-  fields/labels/regulatory-notice/consent copy present, Ghana
-  geo-detection default working, no console errors.
-- **Real, live server behavior against the actual connected Supabase
-  project**: `POST /api/enroll/start` was hit directly. Since migration
-  013 hasn't been applied yet, `huuid_check_and_log_rate_limit` genuinely
-  doesn't exist in the real database — and the fail-closed rate-limit
-  design (`lib/enrollment-rate-limit.ts`: "if the check itself is broken,
-  do not allow the attempt through") correctly rejected the request with
-  a clean, generic 429, with the real Postgres error only in server logs,
-  never exposed to the client. This is real evidence the fail-closed
-  behavior works, not an assumption.
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` — all clean, every
+  time code changed.
+- Migrations 013/014 applied to the live "rewire" Supabase project.
+  Supabase's own security advisor was run afterward and caught a real
+  issue (see § 18.8) — re-run afterward, zero findings on the new schema.
+- All required env vars confirmed set in Vercel Production/Preview/
+  Development (see § 18.6 — this is now done, not outstanding).
+- **A complete, real enrollment**, driven through the actual deployed UI
+  in a browser (not curl), using the operator's real phone number:
+  form submit → real Hubtel SMS actually received on a real handset →
+  OTP entered and verified → PIN set → Ed25519 keypair generated
+  client-side → registered. Resulting HUUID:
+  `did:huuid:gh:AgDLy1FXe45exMiSo7AtKhhthu8zjwyqGsAYJf7AokN2`.
+- **Database writes confirmed directly via SQL against production**, not
+  inferred from the UI: a row in `huuid_did_documents` (status `active`,
+  `issuing_node: did:huuid:self-enrolled`); a row in `huuid_patients`
+  (tier 1, phone_verified true, both consents true); the full 3-step
+  `huuid_audit_enrollment` trail (`enrollment_started` →
+  `phone_verified` → `enrollment_completed`, all outcome `success`).
+- **Column-level encryption confirmed to round-trip on real production
+  data** — called `huuid_get_patient_by_huuid` directly via the
+  PostgREST RPC endpoint (service-role auth, real `HUUID_PII_ENCRYPTION_KEY`,
+  neither ever printed to any visible output) and got back the correct
+  decrypted `full_name`.
+- The Healthcare Identity Card screen (`/enroll/card`) renders the real
+  name, HUUID, tier badge, and a genuinely-loaded QR image (confirmed
+  300×300 real PNG data, not a broken `<img>`).
+- PDF download: the shared canvas-rendering pipeline (`lib/client/
+  card-canvas.ts`) confirmed producing real pixel content (856×540,
+  ~50KB PNG data URL) with zero console errors and no fallback-path
+  message shown, meaning `jsPDF`'s `doc.save()` ran to completion.
 
-**NOT verified — genuinely blocked without operator action:**
+**Still not verified** (no real device access from this environment):
 
-- The full happy path (OTP send → verify → keygen → register → card) —
-  blocked on migrations 013/014 not being applied to the real Supabase
-  project, and on `HUUID_PII_ENCRYPTION_KEY` / `HUUID_SESSION_ENCRYPTION_KEY`
-  / Hubtel / Africa's Talking / Resend credentials not being set in
-  `.env.local` or Vercel. None of these were set or applied without
-  asking, since both are consequential actions on shared/real
-  infrastructure.
-- Real SMS delivery via Hubtel or the Africa's Talking fallback.
-- WebAuthn on an actual biometric-capable device (PRF support especially).
-- PDF quality/reliability on an actual mobile browser.
-- QR code scanning with a real phone camera.
-- Whether Ed25519 Web Crypto genuinely works across this project's real
-  low-end-Android target devices.
+- WebAuthn PRF support on an actual biometric-capable device.
+- PDF file quality specifically on a mobile browser's download handling.
+- QR code scanning with a real phone camera (the QR image itself is
+  confirmed to render; an actual camera scan wasn't performed).
+- Whether Ed25519 Web Crypto works across the full range of this
+  project's real low-end-Android target devices (it worked in the
+  Browser-pane's Chromium).
 
-### 18.6 What's needed before this can go live
+### 18.6 Deployment status — DONE, not outstanding
 
-1. Apply migrations `013_patient_enrollment.sql` and `014_otp_cleanup.sql`
-   to the real Supabase project — not done automatically, since applying
-   migrations to a shared, real, ~30-app production database is a
-   consequential action requiring explicit operator go-ahead.
-2. Set `HUUID_PII_ENCRYPTION_KEY` and `HUUID_SESSION_ENCRYPTION_KEY`
-   (both ≥32 chars, e.g. `openssl rand -base64 32`) in `.env.local` and
-   Vercel Production/Preview/Development.
-3. Set Hubtel/Africa's Talking/Resend credentials. Note: the operator's
-   global CLAUDE.md lists a Tier 1 default Hubtel Client ID/Secret shared
-   across the whole Cedimaker ecosystem — this project's own
-   `.env.local` currently has neither (confirmed directly, matching
-   HANDOFF's existing Blocker 1 note about `RESEND_API_KEY`), so a future
-   session should apply that default here rather than re-asking the
-   operator, per that document's own instruction — this session did not
-   do so itself since editing real credential files wasn't asked for.
-4. Wire `huuid_cleanup_expired_otps()` (migration 014) to an actual
-   scheduler — nothing calls it automatically yet.
-5. Field-test WebAuthn PRF support, Ed25519 Web Crypto support, SMS
-   delivery, PDF quality, and QR scannability on real devices before any
-   pilot messaging relies on them.
-6. Draft the HUUID-RESOLUTION-SPEC and HUUID-COMPLIANCE addenda described
-   in § 18.1 — not done as part of this build.
+Everything in this list from the prior draft of this section is now
+complete:
+
+1. ✅ Migrations `013_patient_enrollment.sql` and `014_otp_cleanup.sql`
+   applied to the live Supabase project.
+2. ✅ `HUUID_PII_ENCRYPTION_KEY` and `HUUID_SESSION_ENCRYPTION_KEY`
+   generated fresh (`crypto.randomBytes(32).toString('base64')`, per
+   operator instruction) and set in Vercel Production/Preview/
+   Development. Confirmed neither existed anywhere in Vercel before
+   generating, per operator instruction not to regenerate existing ones.
+3. ✅ Hubtel credentials found in sibling projects (`poi-app`,
+   `bedwatchafrica`) and copied in, per explicit operator instruction —
+   see § 18.8 for why this took three real fixes to actually work.
+   Africa's Talking was explicitly excluded from this build per operator
+   instruction ("dont use africas talking hubtel works") — the
+   `sendViaAfricasTalking` fallback code path still exists in `lib/sms.ts`
+   but its credentials were never verified working and its use wasn't
+   requested.
+4. ⬜ `RESEND_API_KEY` copied in from `poi-app`, but
+   `HUUID_ENROLLMENT_FROM_EMAIL` deliberately left unset — HUUID has no
+   verified sending domain yet (Pre-Pilot Blocker 1), and inventing one
+   would just bounce. The register route already skips the confirmation
+   email gracefully when this is unset.
+5. ⬜ `huuid_cleanup_expired_otps()` (migration 014) still has no
+   scheduler wired to it — nothing calls it automatically yet.
+6. ⬜ Field-test WebAuthn PRF support, Ed25519 Web Crypto support, PDF
+   quality, and QR scannability on real target devices (see § 18.5).
+7. ⬜ Draft the HUUID-RESOLUTION-SPEC and HUUID-COMPLIANCE addenda
+   described in § 18.1 — still not done as part of this build.
+
+### 18.8 The Hubtel SMS debugging story — read before touching `lib/sms.ts`
+
+The migration/env-var work was mechanical. Getting a real SMS to actually
+reach a real phone took three separate, real bugs, found live against
+production with the operator's own phone as the test oracle. In order:
+
+**Bug 1 — the documented Tier 1 Hubtel Client ID was correct, but a copy
+extraction bug on top of it produced a false "different account" theory.**
+`bedwatchafrica/.env.local` wraps every value in literal double-quote
+characters as part of the file (e.g. `HUBTEL_SENDER_ID="BEDWATCHAFR"`,
+quotes included in the raw bytes) while `poi-app/.env.local` does not. A
+naive `cut -d= -f2-` extraction copied the quote characters straight into
+Vercel as part of the value. This produced a real, reproducible-looking
+"bedwatchafrica has a different Hubtel account than CLAUDE.md documents"
+finding that was reported to the operator — **that finding was wrong**,
+an artifact of the quoting bug, not a real discrepancy. Once quotes were
+stripped properly, all 8 local Cedimaker projects referencing Hubtel
+resolved to the exact same Client ID. Lesson: always verify a "different
+value" finding by checking raw bytes (`cat -A` / `xxd`), not just string
+length or a diff, before reporting a cross-project discrepancy.
+
+**Bug 2 — wrong API host.** The original build brief specified
+`https://api.hubtel.com/v1/messages/send`. That host returns HTTP 400
+`"Provided ClientId could not be found"` for the correct, currently-valid
+Client ID, regardless of which sibling project it came from. Confirmed
+via Hubtel's own official SDK (`github.com/hubtel/hubtel-sms-java`,
+`ApiHost.java`'s default hostname) that the real host is
+`smsc.hubtel.com`. Fixed, redeployed — the error changed but didn't go
+away yet (see Bug 3).
+
+**Bug 3 — wrong request shape, and this one was genuinely dangerous
+because it fails silently.** Even against the correct host, this
+project's code sent a `POST` with a JSON body (`{From, To, Content}`) and
+a `Basic` auth header (`base64(clientId:clientSecret)`) — matching both
+the original brief and Hubtel's own Java SDK's apparent structure. This
+returns **HTTP 200, Hubtel's own domain-level `status: 0` ("submitted
+successfully"), a real `messageId`, and a real account balance charge
+(`rate: 0.03`)** — every signal this codebase checked for success — and
+still delivers nothing to any real handset. The actual working format,
+confirmed by reading `cedimaker-legacy-ui/lib/sms.ts` (a sibling project
+the operator confirmed *just* successfully sent a real SMS with this
+exact same account), is a bare `GET` request with `clientid`,
+`clientsecret`, `from`, `to`, and `content` as **query-string
+parameters** — no JSON body, no Authorization header at all. The
+`/v1/messages/send` endpoint evidently does not read `To`/`Content` from
+a POST body on this account/product configuration; it silently accepts
+and bills the request while never reading a real recipient number from
+anywhere. There is no error path that reveals this — the only way it
+surfaced was the operator saying "did not come" after checking a real
+phone.
+
+**Takeaway for future sessions**: an HTTP 200 with a plausible-looking
+JSON success body is not proof an SMS provider integration works.
+Bug 3 would have shipped silently to real patients if the operator
+hadn't manually confirmed delivery on a real device — this is exactly
+why `Africa's Talking`'s equally-silent-looking failure mode elsewhere
+in this file (§ Rule 24, idempotency notes) and Hubtel's own docs
+warning about delivery reports exist. If a pre-pilot checklist item is
+added for SMS, it should require an operator confirming actual receipt
+on a real handset, not just a 200 response, every time this code path
+changes.
+
+`lib/sms.ts`'s `sendViaHubtel` also now logs Hubtel's own response body
+(`status`, `statusDescription`, `rate`, `networkId`) on every call and
+throws if `status !== 0` or `messageId` is falsy, rather than trusting
+HTTP-level `res.ok` alone.
 
 ### 18.7 New files, for reference
 
