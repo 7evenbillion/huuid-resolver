@@ -126,13 +126,15 @@ a silent permission-denied error, no exception thrown).
 | `014_otp_cleanup.sql` | **APPLIED to production.** `huuid_cleanup_expired_otps()` — needs an external scheduler (Vercel Cron or pg_cron) to actually invoke it; nothing calls it automatically yet. |
 | `015_audit_erasure_completed_action.sql` | **APPLIED to production.** Adds `erasure_completed` to `huuid_audit_enrollment`'s allowed actions; `huuid_gdpr_erase_patient()` rebuilt to actually write its own audit entry (it wrote none at all before this — a real gap, found running the function for real). |
 | `016_relax_pii_not_null.sql` | **APPLIED to production.** Drops `NOT NULL` on the `huuid_patients` columns the erasure function needs to null out — migration 013 defined them `NOT NULL` (correct at enrollment time) without accounting for erasure needing to clear them later. Found by running the erasure function for real and hitting the constraint violation. |
+| `017_retain_phone_hash.sql` | **APPLIED to production.** Operator decision, reversing 013's original "frees phone_hash for reuse" design — `huuid_gdpr_erase_patient()` no longer nulls `phone_hash` (only `phone_enc`, the reversible copy). Also adds a dedicated `'erasure'` OTP type and `huuid_get_patient_huuid_by_phone()` for the new self-service `/enroll/erase` flow. See § 18.10 for the operator's stated rationale. |
 
 **Renumbering note:** the enrollment build brief specified
 `012_patient_enrollment.sql` / `013_otp_cleanup.sql` — both were
 renumbered to 013/014 since 012 was already taken by `012_waitlist.sql`.
-015/016 were not part of any brief — both were written live, in
+015/016/017 were not part of any brief — 015/016 were written live, in
 response to real failures hit while running the GDPR erasure function
-for the first time (see § 18.9).
+for the first time (see § 18.9); 017 was a subsequent operator policy
+decision (see § 18.10).
 
 **Filename note:** migrations 008 and 009 are named
 `008_stub_integrity_override.sql` and `009_stub_integrity_immutable.sql`
@@ -929,3 +931,70 @@ redefinition (now folded into migration 015's own file).
 
 No other patient records were touched. This was the only row in
 `huuid_patients` in the entire shared database at the time.
+
+### 18.10 Phone hash retention — reversed to RETAIN, operator decision
+
+§ 18.9 flagged that the erasure function's actual behavior (freeing
+`phone_hash` for reuse) didn't match what the operator's erasure-test
+request assumed (retained for dedup). The operator resolved this
+explicitly: **retain `phone_hash` permanently after erasure.**
+
+**Operator's stated rationale, recorded verbatim:** "Healthcare audit
+integrity takes priority over frictionless re-enrollment. GDPR Article
+17(3)(b) allows retention for legal obligations. Phone hash retained
+permanently post-erasure." This document does not independently verify
+that Art. 17(3)(b) applies to this specific retention — that
+determination is the operator's, consistent with
+HUUID-COMPLIANCE-v0.1's own "not a legal opinion" framing for this
+whole document library (§ 6 of that document).
+
+**What changed (migration 017):**
+- `huuid_gdpr_erase_patient()`: `phone_hash` removed from the `SET NULL`
+  list. Every other PII field (name, DOB, sex at birth, emergency
+  contact, phone_enc, private key material, WebAuthn credential ID) is
+  still nulled exactly as before — only the phone lookup hash survives.
+- **Practical effect, verified**: `huuid_patient_exists_by_phone()`
+  already checks `phone_hash` existence regardless of `status` — so an
+  erased phone number is automatically blocked from a fresh
+  self-enrollment attempt through the *existing* enrollment-start logic.
+  No change was needed there; the retention alone is sufficient to
+  enforce "cannot re-enroll without contacting HUUID."
+- A dedicated `'erasure'` OTP type and `huuid_get_patient_huuid_by_phone()`
+  lookup function were added to support a genuine self-service
+  `/enroll/erase` flow (phone → OTP → explicit confirmation screen → 
+  irreversible erasure), which did not exist before this — the operator's
+  original erasure test was run administratively via Supabase MCP,
+  bypassing any UI, since none existed.
+
+**New self-service erasure flow** (`app/enroll/erase/page.tsx`,
+`app/api/enroll/erase/{start,verify-otp,confirm}/route.ts`): phone entry
+→ OTP verification (same security bar as recovery) → an explicit
+confirmation screen listing exactly what's deleted and irreversible,
+carrying the required notice verbatim: *"After erasure your phone
+number cannot be used to create a new HUUID. Contact
+identity@huuid.health to reactivate your Healthcare Identity."* → the
+same notice repeats on the final "erased" confirmation screen. The
+`identity@huuid.health` address is used exactly as specified — **it has
+not been verified to exist or to route anywhere**; that's a real
+inbox/alias the operator needs to actually provision before this is
+relied on by a real patient.
+
+**Verified after the migration and rebuild** (all against the same real
+production record from § 18.9,
+`did:huuid:gh:AgDLy1FXe45exMiSo7AtKhhthu8zjwyqGsAYJf7AokN2`, which had
+already been erased once under the old *freeing* behavior — `phone_hash`
+was already `NULL` on that specific row going into this change, so the
+retention behavior itself was verified by function-definition review and
+`npx tsc`/lint/build passing clean, not by a second live erasure run
+against a fresh phone number. If a real pre-pilot test wants a live
+demonstration of retention specifically, it needs a *new* enrollment run
+through the fixed function, since the one real test patient this project
+has ever created is already erased.):
+- `huuid_gdpr_erase_patient()` function body confirmed to no longer
+  reference `phone_hash` in its `SET` clause (only `phone_enc`).
+- `npx tsc --noEmit`, `npm run lint`, `npm run build` — all clean with
+  the new `/enroll/erase` routes and page included.
+- `/enroll/erase` renders and reaches all four stages (phone → otp →
+  confirm → erased) in the code path; not re-driven through a live
+  phone number in this session (would require a second real enrollment
+  first, see above).
