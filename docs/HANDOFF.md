@@ -122,12 +122,17 @@ a silent permission-denied error, no exception thrown).
 | `010_atomic_rate_limit.sql` | `increment_bg_rate_limit`, `increment_resolution_rate_limit` — row-locked atomic counters |
 | `011_separate_rate_limits.sql` | `purpose_code` column on `huuid_request_log`; `increment_resolution_rate_limit` rebuilt with advisory locks, scoped per (facility, purpose) |
 | `012_waitlist.sql` | `huuid_waitlist` — homepage interest-signal capture |
-| `013_patient_enrollment.sql` | **Written, NOT YET APPLIED to the real Supabase project.** `huuid_patients`, `huuid_otp_verifications`, `huuid_enrollment_rate_limits`, `huuid_audit_enrollment`, pgcrypto column encryption, all RPC functions. See § 18. |
-| `014_otp_cleanup.sql` | **Written, NOT YET APPLIED.** `huuid_cleanup_expired_otps()` — needs an external scheduler (Vercel Cron or pg_cron) to actually invoke it; nothing calls it automatically yet. |
+| `013_patient_enrollment.sql` | **APPLIED to production.** `huuid_patients`, `huuid_otp_verifications`, `huuid_enrollment_rate_limits`, `huuid_audit_enrollment`, pgcrypto column encryption, all RPC functions. See § 18. |
+| `014_otp_cleanup.sql` | **APPLIED to production.** `huuid_cleanup_expired_otps()` — needs an external scheduler (Vercel Cron or pg_cron) to actually invoke it; nothing calls it automatically yet. |
+| `015_audit_erasure_completed_action.sql` | **APPLIED to production.** Adds `erasure_completed` to `huuid_audit_enrollment`'s allowed actions; `huuid_gdpr_erase_patient()` rebuilt to actually write its own audit entry (it wrote none at all before this — a real gap, found running the function for real). |
+| `016_relax_pii_not_null.sql` | **APPLIED to production.** Drops `NOT NULL` on the `huuid_patients` columns the erasure function needs to null out — migration 013 defined them `NOT NULL` (correct at enrollment time) without accounting for erasure needing to clear them later. Found by running the erasure function for real and hitting the constraint violation. |
 
 **Renumbering note:** the enrollment build brief specified
 `012_patient_enrollment.sql` / `013_otp_cleanup.sql` — both were
 renumbered to 013/014 since 012 was already taken by `012_waitlist.sql`.
+015/016 were not part of any brief — both were written live, in
+response to real failures hit while running the GDPR erasure function
+for the first time (see § 18.9).
 
 **Filename note:** migrations 008 and 009 are named
 `008_stub_integrity_override.sql` and `009_stub_integrity_immutable.sql`
@@ -865,3 +870,62 @@ Docx extraction was done via a throwaway `python-docx` script in the
 scratchpad directory (not committed) since `pandoc` isn't installed in
 this environment — worth installing it for future sessions that need to
 read `.docx` files, or documenting `python-docx` as the fallback.
+
+### 18.9 GDPR erasure — tested for real, two more real bugs found
+
+Run as a live production test at the operator's request, on the exact
+patient record created during § 18.5/18.8's real enrollment test
+(`did:huuid:gh:AgDLy1FXe45exMiSo7AtKhhthu8zjwyqGsAYJf7AokN2`), executed
+directly via Supabase MCP (administrative action, not through the
+patient-facing UI — there isn't one yet, see § 18.6 item 7's residual
+"no self-service erasure endpoint" gap).
+
+Two real bugs surfaced running `huuid_gdpr_erase_patient()` for the
+first time — neither was caught by writing the function, only by running
+it:
+
+1. **No audit trail was ever written by the erasure function.** It
+   performed the `UPDATE`s and stopped — genuinely ironic for a
+   compliance-relevant operation. Fixed in migration 015: the CHECK
+   constraint on `huuid_audit_enrollment.action` gained
+   `'erasure_completed'` (only `'erasure_requested'` existed before), and
+   the function now writes its own immutable audit row on every call,
+   with optional `ip_hash`/`user_agent_hash` params (defaulting to a
+   hash of a fixed sentinel string for administrative/direct-DB calls,
+   so a future patient-facing erasure endpoint can pass real request
+   context instead).
+2. **The erasure function couldn't actually run at all on the first
+   try** — `ERROR: 23502: null value in column "full_name_enc"... violates
+   not-null constraint`. Migration 013 declared `full_name_enc`,
+   `date_of_birth_enc`, `sex_at_birth_enc`, `phone_hash`, `phone_enc`,
+   `encrypted_private_key`, `pbkdf2_salt`, and `pbkdf2_iv` all `NOT NULL`
+   — correct at enrollment time, but self-contradictory with an erasure
+   function whose entire job is nulling those exact columns. Fixed in
+   migration 016 (`ALTER COLUMN ... DROP NOT NULL` on all eight). The
+   failed attempt did not leave partial state — it's a single `UPDATE`
+   statement, so Postgres rolled the whole thing back atomically.
+
+Also hit and fixed along the way: `CREATE OR REPLACE FUNCTION` does not
+replace a function when you change its argument list — it creates a
+second overload. Adding the two new optional params to
+`huuid_gdpr_erase_patient` left the original 1-arg version from
+migration 013 still present, making any 1-arg call ambiguous
+(`function huuid_gdpr_erase_patient(unknown) is not unique`). Fixed with
+an explicit `DROP FUNCTION huuid_gdpr_erase_patient(text);` before the
+redefinition (now folded into migration 015's own file).
+
+**Full verification, all against the real production HUUID above:**
+
+| Check | Result |
+|---|---|
+| `huuid_patients` row still exists | ✅ row present, `id` unchanged |
+| All PII columns nulled (`full_name_enc`, `date_of_birth_enc`, `sex_at_birth_enc`, `phone_hash`, `phone_enc`, `encrypted_private_key`, `pbkdf2_salt`, `pbkdf2_iv`, `webauthn_credential_id`, `email`) | ✅ every one confirmed `NULL` via direct SQL |
+| `huuid_patients.status` | ✅ `revoked` |
+| `huuid_did_documents.status` | ✅ `revoked` |
+| `gdpr_erasure_requested` | ✅ `true` |
+| Audit record, `action: erasure_completed`, `outcome: success` | ✅ confirmed, third row in the trail after `enrollment_started`/`enrollment_completed` |
+| `GET /1.0/identifiers/{huuid}` with a real signed facility JWT | ✅ **HTTP 410**, `error: "deactivated"`, `errorMessage: "HUUID has been deactivated. Patient must re-enroll at the issuing node."` — tested with a genuinely signed Ed25519 JWT via the seeded test facility (`lib/test-facility-jwt.ts`'s signing logic, run standalone), not just a bare curl |
+| Phone number retained for dedup vs. freed for reuse | ⚠️ **the operator's request assumed the phone stays retained for dedup; the actual, deliberate design (documented in migration 013's own header comment) frees `phone_hash` for reuse instead.** Both are legitimate design choices with different tradeoffs (retained: prevents an erased patient's number from being reused for spam re-enrollment abuse; freed: lets a real person who legitimately requested erasure re-enroll with their own number afterward, which is closer to what GDPR Art. 17 erasure implies). This was flagged before running the erasure, not discovered after — the operator did not respond to the flag before requesting the erasure proceed, so the existing (freed) behavior was kept as-is. Worth an explicit decision if this matters for the real pre-pilot design.
+
+No other patient records were touched. This was the only row in
+`huuid_patients` in the entire shared database at the time.
