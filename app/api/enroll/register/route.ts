@@ -4,8 +4,10 @@ import { getPiiKey } from '@/lib/pii';
 import { registerSchema } from '@/lib/enrollment-schemas';
 import { checkEnrollmentRateLimit, requesterIpHash, userAgentHash } from '@/lib/enrollment-rate-limit';
 import { enrollmentSession } from '@/lib/enrollment-session';
+import { postEnrollmentSession } from '@/lib/post-enrollment-session';
 import { writeEnrollmentAudit } from '@/lib/enrollment-audit';
 import { sendSMS, SMSDeliveryError } from '@/lib/sms';
+import { buildQrTokenPayload, signQrToken } from '@/lib/qr-token';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -140,8 +142,28 @@ export async function POST(req: NextRequest) {
   // anyone who merely scans or guesses a HUUID/QR code.
   const fullName = session.fullName;
   const countryCode = session.countryCode;
+  const sexAtBirth = session.sexAtBirth;
 
   await enrollmentSession.clear();
 
-  return NextResponse.json({ huuid: input.huuid, fullName, countryCode, success: true });
+  // Opens the 30-minute window /api/enroll/medical checks — see
+  // lib/post-enrollment-session.ts for why a new session is needed here
+  // rather than extending the one just cleared above.
+  await postEnrollmentSession.set({ huuid: input.huuid, createdAt: Date.now() });
+
+  // Base QR token: no medical data yet (patient hasn't reached that screen).
+  // /api/enroll/medical re-signs a fuller token once they fill it in, or
+  // skip leaves this base token as the card's permanent QR content.
+  const qrPayload = buildQrTokenPayload(input.huuid, {});
+  const signed = signQrToken(qrPayload);
+
+  return NextResponse.json({
+    huuid: input.huuid,
+    fullName,
+    countryCode,
+    sexAtBirth,
+    success: true,
+    qrToken: signed?.token ?? null,
+    qrTokenUsingInterimKey: signed?.usingInterimKey ?? null,
+  });
 }

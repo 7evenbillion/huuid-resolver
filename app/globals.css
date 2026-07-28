@@ -2053,3 +2053,191 @@ img {
     box-shadow: none;
   }
 }
+
+/* ---------- Emergency Medical Profile (Phase 2A) ---------- */
+
+.info-box {
+  background: var(--teal-tint);
+  border: 1px solid #bfe6df;
+  border-radius: 10px;
+  padding: 16px 18px;
+  font-size: 13.5px;
+  color: var(--teal-dark);
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+.medical-section {
+  margin-bottom: 28px;
+}
+
+.medical-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0 0 4px;
+}
+
+.medical-section-note {
+  font-size: 12.5px;
+  color: var(--text-grey);
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.multi-entry-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  position: relative;
+  background: var(--grey-bg);
+}
+
+.multi-entry-remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--text-grey);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+
+.multi-entry-remove:hover {
+  color: #b3261e;
+}
+
+.add-entry-btn {
+  background: none;
+  border: 1px dashed var(--teal);
+  color: var(--teal);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  text-align: center;
+}
+
+.add-entry-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.checkbox-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.checkbox-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-dark);
+  cursor: pointer;
+  background: var(--white);
+}
+
+.checkbox-chip.checked {
+  border-color: var(--teal);
+  background: var(--teal-tint);
+  color: var(--teal-dark);
+  font-weight: 600;
+}
+
+.checkbox-chip input {
+  accent-color: var(--teal);
+}
+
+.radio-row-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.radio-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  background: var(--white);
+}
+
+.radio-chip.checked {
+  border-color: var(--navy);
+  background: #eef2f8;
+  color: var(--navy);
+  font-weight: 600;
+}
+
+.radio-chip input {
+  accent-color: var(--navy);
+}
+
+.medical-skip-link {
+  display: block;
+  text-align: center;
+  margin-top: 16px;
+  color: var(--text-grey);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* ---------- Card medical banners (identity card + reminders) ---------- */
+
+.do-not-give-banner {
+  background: #b3261e;
+  color: var(--white);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  margin: 10px 0;
+}
+
+.medical-incomplete-banner {
+  background: #fff8e6;
+  border: 1px solid #e8b93a;
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #7a5a00;
+  line-height: 1.5;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.medical-incomplete-banner a {
+  color: #7a5a00;
+  font-weight: 700;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.medical-incomplete-dismiss {
+  background: none;
+  border: none;
+  color: #7a5a00;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 2px;
+}

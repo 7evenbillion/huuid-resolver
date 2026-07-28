@@ -71,13 +71,19 @@ export default function ReadyPage() {
         </div>
 
         <div className="download-buttons">
-          <button className="btn btn-teal btn-block" onClick={() => router.push('/enroll/card')}>
-            View My Healthcare Identity Card →
+          <button className="btn btn-teal btn-block" onClick={() => router.push('/enroll/medical')}>
+            Add Emergency Medical Info →
           </button>
-          <button className="btn btn-white-outline btn-block" style={{ color: 'var(--navy)', borderColor: 'var(--navy)' }} onClick={() => router.push('/enroll/card?download=1')}>
-            Download My Card Now
+          <button className="btn btn-white-outline btn-block" style={{ color: 'var(--navy)', borderColor: 'var(--navy)' }} onClick={() => router.push('/enroll/card')}>
+            Skip for Now
           </button>
         </div>
+        <button
+          className="medical-skip-link"
+          onClick={() => router.push('/enroll/card?download=1')}
+        >
+          Download My Card Now
+        </button>
       </div>
     </div>
   );

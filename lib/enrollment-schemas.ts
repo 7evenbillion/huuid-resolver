@@ -43,3 +43,48 @@ export const registerSchema = z.object({
 export const recoverStartSchema = z.object({
   phone: z.string().refine(isValidE164, 'Phone number must be in E.164 format.'),
 });
+
+/** Screen "Emergency Medical Profile" (Phase 2A). Every field optional and
+ * patient-provided, not clinically verified — same Tier 1 trust level as
+ * the rest of self-enrolled data. */
+const allergySchema = z.object({
+  substance: z.string().trim().min(1).max(200),
+  reaction: z.string().trim().max(300).optional().nullable(),
+  severity: z.enum(['mild', 'moderate', 'severe', 'life-threatening']).optional().nullable(),
+});
+
+const medicationSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  dose: z.string().trim().max(100).optional().nullable(),
+  frequency: z.string().trim().max(100).optional().nullable(),
+});
+
+const contraindicationSchema = z.object({
+  substance: z.string().trim().min(1).max(200),
+  reason: z.string().trim().max(300).optional().nullable(),
+  severity: z.enum(['never', 'avoid', 'consult']),
+});
+
+export const bloodTypeEnum = z.enum(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'unknown']);
+
+export const medicalProfileSchema = z.object({
+  bloodType: bloodTypeEnum.optional().nullable(),
+  allergies: z.array(allergySchema).max(5).optional(),
+  medications: z.array(medicationSchema).max(5).optional(),
+  chronicConditions: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
+  pregnancyStatus: z.enum(['pregnant', 'not_pregnant', 'unknown']).optional().nullable(),
+  organDonor: z.enum(['yes', 'no', 'unknown']).optional().nullable(),
+  implantedDevices: z.array(z.string().trim().min(1).max(100)).max(20).optional(),
+  primaryPhysicianName: z.string().trim().max(200).optional().nullable(),
+  primaryPhysicianPhone: z.string().trim().max(50).optional().nullable(),
+  primaryFacilityName: z.string().trim().max(200).optional().nullable(),
+  primaryFacilityCountry: z.string().trim().max(100).optional().nullable(),
+  contraindications: z.array(contraindicationSchema).max(10).optional(),
+});
+
+export type MedicalProfileInput = z.infer<typeof medicalProfileSchema>;
+
+/** Mirrors huuid_update_medical_profile's v_completed logic (migration 018) so the API can report completion without a second round trip. */
+export function isMedicalProfileComplete(input: MedicalProfileInput): boolean {
+  return (!!input.bloodType && input.bloodType !== 'unknown') || (input.allergies?.length ?? 0) >= 1;
+}

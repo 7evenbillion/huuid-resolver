@@ -109,6 +109,8 @@ export default function SecureIdentity() {
       sessionStorage.setItem('huuid_just_created', data.huuid);
       sessionStorage.setItem('huuid_just_created_name', data.fullName ?? '');
       sessionStorage.setItem('huuid_just_created_country', data.countryCode ?? '');
+      sessionStorage.setItem('huuid_just_created_sex', data.sexAtBirth ?? '');
+      if (data.qrToken) sessionStorage.setItem('huuid_qr_token', data.qrToken);
       router.push('/enroll/ready');
     } catch {
       setError('Could not reach the server. Check your connection and try again.');
