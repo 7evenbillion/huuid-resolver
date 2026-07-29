@@ -209,10 +209,10 @@ function CardScreen() {
         {medical && medical.medicalProfileCompleted && (
           <div className="info-box" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px', alignItems: 'center' }}>
             {medical.bloodType && medical.bloodType !== 'unknown' && (
-              <span><strong>Blood Type:</strong> {medical.bloodType}</span>
+              <span>🩸 <strong>Blood Type:</strong> {medical.bloodType}</span>
             )}
             {severeAllergies.length > 0 && (
-              <span>⚠️ <strong>Severe Allergies:</strong> {severeAllergies.map((a) => a.substance).join(', ')}</span>
+              <span>⚠️ <strong>ALLERGY:</strong> {severeAllergies.map((a) => a.substance).join(', ')}</span>
             )}
             {medical.chronicConditions.length > 0 && (
               <span><strong>Conditions:</strong> {medical.chronicConditions.join(', ')}</span>
