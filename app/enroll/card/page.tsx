@@ -131,9 +131,16 @@ function CardScreen() {
       tierLabel: 'Tier 1 — Self-Enrolled',
       enrollmentDate,
       qrDataUrl,
+      medical: medical
+        ? {
+            bloodType: medical.bloodType,
+            allergySubstance: severeAllergies[0]?.substance ?? null,
+            doNotGiveSubstances: neverGive.map((c) => c.substance),
+          }
+        : undefined,
     });
     return canvasRef.current;
-  }, [huuid, qrDataUrl, fullName, country, countryCode, enrollmentDate]);
+  }, [huuid, qrDataUrl, fullName, country, countryCode, enrollmentDate, medical, severeAllergies, neverGive]);
 
   const filenameBase = huuid ? `HUUID-Card-${fileSafe(fullName || 'patient')}-${huuid.slice(-8)}` : 'HUUID-Card';
 

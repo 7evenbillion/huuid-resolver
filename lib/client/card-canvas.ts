@@ -17,9 +17,18 @@ const NAVY = '#1B3A6B';
 const GREY_BG = '#F8F9FA';
 const TEXT_GREY = '#5A6472';
 const WHITE = '#FFFFFF';
+const DANGER_RED = '#B3261E';
 
 export const CARD_WIDTH = 856; // 85.6mm at 10px/mm
 export const CARD_HEIGHT = 540; // 53.98mm at 10px/mm
+
+export interface CardMedicalData {
+  bloodType?: string | null;
+  /** First/most severe allergy substance only -- card face has no room for a full list. */
+  allergySubstance?: string | null;
+  /** Contraindication substances with severity 'never' -- the most safety-critical field. */
+  doNotGiveSubstances?: string[];
+}
 
 export interface CardData {
   fullName: string;
@@ -29,6 +38,7 @@ export interface CardData {
   tierLabel: string;
   enrollmentDate: string;
   qrDataUrl: string;
+  medical?: CardMedicalData;
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -107,6 +117,39 @@ export async function renderCardToCanvas(canvas: HTMLCanvasElement, data: CardDa
     ctx.textAlign = 'left';
   } catch {
     // QR image failed to load -- card still renders with all text fields, just without the QR graphic.
+  }
+
+  // Medical strip -- drawn between the HUUID/QR row and the bottom bar.
+  // DO NOT GIVE is the single most safety-critical field on the card, so it
+  // gets its own full-width red bar (not just another line of text) when
+  // present; blood type/allergy share a lighter line below it.
+  const medical = data.medical;
+  let medicalY = bodyTop + 130;
+  if (medical?.doNotGiveSubstances?.length) {
+    const barH = 36;
+    ctx.fillStyle = DANGER_RED;
+    ctx.fillRect(28, medicalY, CARD_WIDTH - 56, barH);
+    ctx.fillStyle = WHITE;
+    ctx.font = 'bold 16px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      truncate(`🚫 DO NOT GIVE: ${medical.doNotGiveSubstances.join(', ')}`, 46),
+      40,
+      medicalY + barH / 2 + 1
+    );
+    ctx.textBaseline = 'alphabetic';
+    medicalY += barH + 12;
+  }
+  if (medical?.bloodType && medical.bloodType !== 'unknown') {
+    ctx.fillStyle = NAVY;
+    ctx.font = 'bold 15px system-ui, sans-serif';
+    ctx.fillText(`🩸 ${medical.bloodType}`, 28, medicalY + 14);
+  }
+  if (medical?.allergySubstance) {
+    const bloodTypeWidth = medical?.bloodType && medical.bloodType !== 'unknown' ? 90 : 0;
+    ctx.fillStyle = DANGER_RED;
+    ctx.font = 'bold 15px system-ui, sans-serif';
+    ctx.fillText(truncate(`⚠️ ALLERGY: ${medical.allergySubstance}`, 34), 28 + bloodTypeWidth, medicalY + 14);
   }
 
   // Bottom bar
