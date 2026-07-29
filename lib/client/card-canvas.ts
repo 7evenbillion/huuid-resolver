@@ -124,7 +124,10 @@ export async function renderCardToCanvas(canvas: HTMLCanvasElement, data: CardDa
   // gets its own full-width red bar (not just another line of text) when
   // present; blood type/allergy share a lighter line below it.
   const medical = data.medical;
-  let medicalY = bodyTop + 130;
+  // Must clear the "Scan to verify" caption below the QR (qrY + qrSize + 18,
+  // i.e. bodyTop + 168) -- an earlier version of this strip started at
+  // bodyTop + 130 and visually overlapped that caption.
+  let medicalY = bodyTop + 180;
   if (medical?.doNotGiveSubstances?.length) {
     const barH = 36;
     ctx.fillStyle = DANGER_RED;
