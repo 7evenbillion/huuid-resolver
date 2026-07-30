@@ -30,6 +30,23 @@ export const EMR_SYSTEM_LABELS = {
   other: 'Other',
 } as const;
 
+/** Plain-text (no emoji) labels for SMS bodies. Ghanaian carrier/aggregator
+ * routes have been observed silently filtering bulk-sender SMS containing
+ * links or unusual glyphs; emoji in a message otherwise identical in
+ * shape to already-proven-delivered plain-text OTP messages is the one
+ * concrete, evidence-backed difference worth removing. */
+export const FACILITY_TYPE_SMS_LABELS: Record<keyof typeof FACILITY_TYPE_LABELS, string> = {
+  teaching_hospital: 'Teaching Hospital',
+  regional_hospital: 'Regional Hospital',
+  district_hospital: 'District Hospital',
+  clinic: 'Clinic / Health Centre',
+  laboratory: 'Laboratory',
+  pharmacy: 'Pharmacy',
+  imaging_center: 'Imaging Centre',
+  specialist_center: 'Specialist Centre',
+  other: 'Other',
+};
+
 export type FacilityType = keyof typeof FACILITY_TYPE_LABELS;
 export type EmrSystem = keyof typeof EMR_SYSTEM_LABELS;
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase-server';
 import { facilityApplicationSchema } from '@/lib/facility-schemas';
-import { FACILITY_TYPE_LABELS } from '@/lib/facility-types';
+import { FACILITY_TYPE_SMS_LABELS } from '@/lib/facility-types';
 import { checkEnrollmentRateLimit, requesterIpHash } from '@/lib/enrollment-rate-limit';
 import { generateApplicationId } from '@/lib/facility-ids';
 import { sendSMS, SMSDeliveryError } from '@/lib/sms';
@@ -9,7 +9,9 @@ import { sendSMS, SMSDeliveryError } from '@/lib/sms';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://huuid-resolver.vercel.app';
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * POST /api/facilities/register (Layer 2) — public, no login required.
@@ -90,10 +92,16 @@ export async function POST(req: NextRequest) {
 
   const rootAuthorityPhone = process.env.HUUID_ROOT_AUTHORITY_PHONE;
   if (rootAuthorityPhone) {
+    // A short gap before the second SMS to the same/nearby recipient --
+    // sending two messages back-to-back in one request is a known trigger
+    // for aggregator/carrier throttling on shared bulk sender routes (the
+    // build brief itself calls for spacing between related messages in
+    // the approve flow below, for the same reason).
+    await sleep(4000);
     try {
       await sendSMS(
         rootAuthorityPhone,
-        `NEW FACILITY APPLICATION\n${input.facilityName}\n${FACILITY_TYPE_LABELS[input.facilityType]} — ${input.countryCode}\nRef: ${applicationId}\nReview at:\n${APP_URL}/admin`
+        `NEW FACILITY APPLICATION\n${input.facilityName}\n${FACILITY_TYPE_SMS_LABELS[input.facilityType]} - ${input.countryCode}\nRef: ${applicationId}\nReview it in the HUUID admin dashboard.\nHUUID`
       );
     } catch (err) {
       const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
