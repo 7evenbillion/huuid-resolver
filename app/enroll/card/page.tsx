@@ -1,14 +1,20 @@
 'use client';
 
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import QRCode from 'qrcode';
-import jsPDF from 'jspdf';
 import Image from 'next/image';
 import IdentityCard from '@/components/enroll/IdentityCard';
 import QrModal from '@/components/enroll/QrModal';
 import { findCountry } from '@/lib/countries';
-import { renderCardToCanvas, downloadCanvasAsPng, CARD_WIDTH, CARD_HEIGHT } from '@/lib/client/card-canvas';
+import {
+  buildPhysicalCard,
+  downloadPhysicalCardPDF,
+  downloadPhysicalCardPNG,
+  PHYSICAL_CARD_WIDTH,
+  PHYSICAL_CARD_HEIGHT,
+  type PhysicalCardMedicalData,
+} from '@/lib/client/card-canvas';
 
 /**
  * QR NOTE (Phase 2A): the QR now encodes the signed offline emergency token
@@ -121,26 +127,37 @@ function CardScreen() {
     day: 'numeric',
   });
 
+  // Physical-card spec: "Critical allergies (life-threatening only)" -- a
+  // stricter filter than the on-screen banner above, which also shows
+  // 'severe'. Computed fresh inside the memo (rather than reusing a
+  // separately-declared array) so this only depends on `medical` itself.
+  const physicalCardMedical: PhysicalCardMedicalData | undefined = useMemo(() => {
+    if (!medical) return undefined;
+    const critical = medical.allergies?.filter((a) => a.severity === 'life-threatening') ?? [];
+    const doNotGive = medical.contraindications?.filter((c) => c.severity === 'never') ?? [];
+    return {
+      bloodType: medical.bloodType,
+      criticalAllergies: critical.map((a) => ({ substance: a.substance, severity: a.severity })),
+      chronicConditions: medical.chronicConditions,
+      implantedDevices: medical.implantedDevices,
+      organDonor: medical.organDonor,
+      pregnancyStatus: medical.pregnancyStatus,
+      doNotGive: doNotGive.map((c) => c.substance),
+      medicalProfileCompleted: medical.medicalProfileCompleted,
+    };
+  }, [medical]);
+
   const buildCanvas = useCallback(async () => {
     if (!huuid || !qrDataUrl || !canvasRef.current) return null;
-    await renderCardToCanvas(canvasRef.current, {
+    return buildPhysicalCard(canvasRef.current, {
       fullName,
       huuid,
-      countryFlag: country?.flag ?? '',
-      countryName: country?.name ?? countryCode,
-      tierLabel: 'Tier 1 — Self-Enrolled',
-      enrollmentDate,
+      tierNumber: 1,
+      issuedDate: new Date(),
       qrDataUrl,
-      medical: medical
-        ? {
-            bloodType: medical.bloodType,
-            allergySubstance: severeAllergies[0]?.substance ?? null,
-            doNotGiveSubstances: neverGive.map((c) => c.substance),
-          }
-        : undefined,
+      medical: physicalCardMedical,
     });
-    return canvasRef.current;
-  }, [huuid, qrDataUrl, fullName, country, countryCode, enrollmentDate, medical, severeAllergies, neverGive]);
+  }, [huuid, qrDataUrl, fullName, physicalCardMedical]);
 
   const filenameBase = huuid ? `HUUID-Card-${fileSafe(fullName || 'patient')}-${huuid.slice(-8)}` : 'HUUID-Card';
 
@@ -150,10 +167,7 @@ function CardScreen() {
     if (!canvas) return;
 
     try {
-      const doc = new jsPDF({ unit: 'mm', format: [85.6, 53.98], orientation: 'landscape' });
-      const imgData = canvas.toDataURL('image/png');
-      doc.addImage(imgData, 'PNG', 0, 0, 85.6, 53.98);
-      doc.save(`${filenameBase}.pdf`);
+      await downloadPhysicalCardPDF(canvas, `${filenameBase}.pdf`);
     } catch (err) {
       // Graceful degradation: some mobile browsers choke on jsPDF's canvas
       // pipeline under memory pressure. Fall back to the browser's own
@@ -168,7 +182,7 @@ function CardScreen() {
   const handleDownloadPng = useCallback(async () => {
     const canvas = await buildCanvas();
     if (!canvas) return;
-    downloadCanvasAsPng(canvas, `${filenameBase}.png`);
+    downloadPhysicalCardPNG(canvas, `${filenameBase}.png`);
   }, [buildCanvas, filenameBase]);
 
   function handleDownloadQr() {
@@ -291,7 +305,7 @@ function CardScreen() {
           </>
         )}
 
-        <canvas ref={canvasRef} width={CARD_WIDTH} height={CARD_HEIGHT} style={{ display: 'none' }} />
+        <canvas ref={canvasRef} width={PHYSICAL_CARD_WIDTH} height={PHYSICAL_CARD_HEIGHT} style={{ display: 'none' }} />
       </div>
 
       {showModal && qrLarge && (

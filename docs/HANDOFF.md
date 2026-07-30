@@ -1063,16 +1063,16 @@ carrying a production-trustworthy signature.
 
 **Card face (the printed 85.6×53.98mm graphic, `IdentityCard.tsx` /
 `lib/client/card-canvas.ts` / the PDF export) was deliberately NOT
-redesigned.** The spec's banners (🚫 DO NOT GIVE, blood type, severe
-allergy warning, condition list, pacemaker/pregnancy/organ-donor icons,
-amber incomplete-profile reminder) were added to the **on-screen card
-page** around the `IdentityCard` component — the DO NOT GIVE banner
-directly under the page heading (most prominent element after the
-patient's name, per spec), a compact medical-summary strip below it. The
-physical card graphic itself, the PNG/PDF export, and the print layout
-are unchanged. Fitting this onto the actual wallet-card face is real
-follow-up work, not attempted here — the card's information density is
-already tight at ID-1 size.
+redesigned** at the time this paragraph was first written. The spec's
+banners (🚫 DO NOT GIVE, blood type, severe allergy warning, condition
+list, pacemaker/pregnancy/organ-donor icons, amber incomplete-profile
+reminder) were added to the **on-screen card page** around the
+`IdentityCard` component only. **This claim is now STALE — see §18.12
+and §18.13.** A minimal medical strip was added to `card-canvas.ts` the
+same day during a live end-to-end test (§18.12), then the physical card
+was fully redesigned from scratch (§18.13). `IdentityCard.tsx` (the
+on-screen component) is still untouched and still looks exactly as
+described here — only the printed/exported card changed.
 
 **Chronic conditions / implanted devices checklist**: the exact
 enumerated list text from the operator's original spec was lost to a
@@ -1110,3 +1110,159 @@ number — this would require a second real SMS OTP charge, not spent here
 since the local session-seeded checks above already cover every code
 path this phase changed. If the operator wants a live demonstration end
 to end, say so explicitly.
+
+### 18.12 Live end-to-end test with a real phone (real SMS) — Phase 2A, fully verified
+
+Requested and run against production with a real number
+(`+233243222058`, the same number as § 18.8's original enrollment test)
+and two real OTP SMS (the first burned by an operator error — restarting
+the browser preview mid-flow lost the enrollment session cookie,
+requiring a resubmit). Result: `did:huuid:gh:GQNQpLpNFZo6rWXTGGgZPTmbhg5N9XzERoPtDjMSgeEZ`,
+full profile (O+ blood type, Penicillin/Anaphylaxis/life-threatening
+allergy, Aspirin/"DO NOT GIVE"/never contraindication, Diabetes Type 2).
+
+**Two real bugs found and fixed live, both redeployed and re-verified
+before continuing (per explicit instruction: stop and fix, don't
+proceed on a failure):**
+- Card banner wording didn't match the operator's exact spec (`Blood
+  Type: O+` instead of `🩸 O+`; `Severe Allergies` instead of `ALLERGY`)
+  — content was right, wording wasn't. Fixed in `app/enroll/card/page.tsx`.
+- The PDF/PNG export (`lib/client/card-canvas.ts`'s `renderCardToCanvas`,
+  as it existed before §18.13's rewrite) never received or drew medical
+  fields at all — Phase 2A had only touched the on-screen page (the stale
+  claim §18.11 originally made, corrected above). Added a red DO NOT GIVE
+  bar and a blood-type/allergy line to that function; caught and fixed a
+  follow-on layout bug on the same pass (the new bar overlapped the
+  "Scan to verify" QR caption).
+
+**GDPR erasure re-verified against this specific record** via
+`huuid_gdpr_erase_patient()` (Supabase MCP, administrative): `phone_hash`
+retained, `phone_enc` and all 10 original PII columns nulled, **all 12
+migration-018 medical columns confirmed nulled**
+(blood_type/allergies/medications/chronic_conditions/pregnancy_status/
+organ_donor/implanted_devices/primary_physician_name/
+primary_physician_phone/primary_facility_name/primary_facility_country/
+contraindications), `medical_profile_completed: false`, `status:
+revoked` on both `huuid_patients` and `huuid_did_documents`, audit trail
+clean (`enrollment_completed → medical_profile_updated →
+erasure_completed`, all `success`).
+
+**QR "scan" was a programmatic decode, not a literal camera scan** — no
+physical camera available in this environment; disclosed explicitly at
+the time. Decoded the actual token from the live card and ran it through
+`huuid-emr-stub`'s (already-fixed, see its own `TECHNICAL-DECISIONS.md`
+§14) `verifyQRToken()` against the real production public key: valid,
+all fields correct.
+
+### 18.13 Physical card redesign — full rebuild of the print/lamination target
+
+**Scope constraint given: "Update card-canvas.ts only. Do not touch the
+on-screen card component or QR token generation."** Followed for
+`components/enroll/IdentityCard.tsx` (untouched, on-screen "Digital
+Card" tab looks exactly as before) and `lib/qr-token.ts` (untouched, no
+change to what's signed or how). **Necessarily also edited
+`app/enroll/card/page.tsx`**, specifically the "Print & Download" tab's
+`buildCanvas`/`handleDownloadPdf`/`handleDownloadPng` and the hidden
+`<canvas>` element's dimensions, to call the new `card-canvas.ts`
+functions instead of the old ones — without that, the redesign has no
+caller and none of the DoD items requiring a live render (QR scan test,
+PDF dimension check, mobile download, production deploy) could actually
+be exercised. This is flagged here as the one deliberate deviation from
+the literal instruction.
+
+**Fully additive to `card-canvas.ts`**: the old `CardData`/
+`renderCardToCanvas`/`CARD_WIDTH`/`CARD_HEIGHT` (856×540, no medical
+fields beyond the DO NOT GIVE bar §18.12 added) are untouched and still
+exported — just no longer called by anything, since the Print & Download
+tab now uses the new `PhysicalCardData`/`renderPhysicalCardToCanvas`/
+`PHYSICAL_CARD_WIDTH`/`PHYSICAL_CARD_HEIGHT` (969×612, ~11.32px/mm,
+3x-of-96dpi ≈ 300dpi-equivalent at true ID-1 physical size). Left in
+place rather than deleted since removing working code wasn't asked for.
+
+**Font sizes: the spec's literal numbers computed to genuinely illegible
+print sizes, so they were not used as given.** The spec's row heights
+(header 52 / DO NOT GIVE bar 36 / footer 28) were explicitly marked "(at
+3x canvas)" and are used literally. Font sizes were not marked that way;
+taken as literal canvas pixels at this canvas's scale they compute to
+roughly 3.2–4.6pt (e.g. the spec's 9px DO NOT GIVE bar text ≈ 3.2pt, its
+13px blood type ≈ 4.6pt) — well under the ~6pt floor normal for print
+body text, on the one card a clinician reads off an unconscious patient.
+Sized up directly (not drawn at the spec's literal sizes first) —
+patient name 20→28px, blood type 22→32px, DO NOT GIVE bar 15→19px,
+critical allergy/devices/pregnancy 13→19px, condition icons 15→22px,
+organ donor 12→17px — verified by rendering the actual canvas, exporting
+it as a PNG (`canvas.toDataURL()` pulled out via the browser tooling,
+decoded to a real file, viewed directly), confirming the enlarged sizes
+are genuinely readable and nothing overlaps or overflows even with every
+optional field present (Variant A). Blood type and the DO NOT GIVE bar —
+the two facts that can prevent an in-field medication error — got the
+largest relative increase. There is substantial unused vertical space
+below the medical fields in every variant (only ~26% of the content
+row's height is used even in the richest case); left unfilled rather
+than stretched to fill it, since "immediately readable" was the explicit
+goal, not "fills the available area."
+
+**No element was dropped for space** — everything in the spec's line
+list (name, blood type, critical allergies, chronic condition icons,
+implanted devices, organ donor, pregnancy) fit at the enlarged sizes
+with room to spare. The one interpretation call: "critical allergies"
+for the physical card is filtered to `severity === 'life-threatening'`
+only (stricter than the on-screen banner, which also shows `'severe'`)
+— computed as its own filter in `page.tsx` rather than reusing the
+on-screen one, per the spec's explicit "(life-threatening only)"
+wording.
+
+**QR scan test — decoded, not physically printed-and-scanned.** No
+printer or phone camera available in this environment. Instead: loaded
+`jsqr` (a real, independent QR-decoding library, fetched at test time
+only — not a project dependency) into the live rendered canvas and
+decoded it directly from the exact pixel data that would be printed.
+Confirmed on two payloads: the short plain-HUUID fallback, and — a
+stricter test — the full 531-character signed offline token from
+`lib/qr-token.ts`, which decoded byte-for-byte correctly at the new
+QR placement/size (≈362×362px within the 38%-width left column, error
+correction level H/30%, unchanged from before — QR generation itself
+lives in `page.tsx`, not touched here). This proves the QR is
+structurally valid and correctly encoded at the new layout; it does not
+prove ink-on-laminate contrast or a real camera's autofocus/glare
+behavior, which only an actual printed card can prove.
+
+**PDF dimensions: confirmed via jsPDF's own `pageSize` API returning
+{width: 85.6, height: 53.98}, not by inspecting a saved file.** Clicking
+the real "Download PDF" button in this environment produced no console
+error and the `jspdf` code-split chunk loaded, but no file appeared in
+the local Downloads folder for this particular run (a PDF from the
+earlier §18.12 test *is* present, so the underlying `.save()` mechanism
+is known to work in this environment generally — this looks like a
+one-off automated-browser download-handling quirk, not a code defect).
+Constructed the identical PDF via `jsPDF` loaded independently in-page
+and read `doc.internal.pageSize.getWidth()/getHeight()` directly: exactly
+85.6 × 53.98mm, confirming the dimension logic (unchanged from the
+original working implementation) is correct.
+
+**Mobile download: not tested on real iOS Safari or Android Chrome** —
+neither device is available in this environment. What WAS checked: the
+page renders with zero horizontal overflow at a 375×812 mobile viewport
+(Chrome DevTools emulation) and the download code path
+(`canvas.toBlob`/`URL.createObjectURL`/anchor-click for PNG,
+dynamically-imported `jsPDF` for PDF) uses the same standard, broadly-
+supported browser APIs this repo's PDF/PNG downloads have used since the
+original Phase 1 build — no new API surface was introduced that would
+behave differently on mobile than the already-shipping download buttons
+did. This is a reasonable inference, not a substitute for an actual
+device test; say so explicitly if a real iOS/Android pass is wanted.
+
+**Verified**: `npx tsc --noEmit`, `npm run lint` (zero warnings after
+wrapping the medical-data derivation in `useMemo`), `npm run build` all
+pass clean. `/enroll/card`'s bundle size dropped 143kB → 16.1kB, a side
+effect of moving jsPDF into a dynamic `import()` inside
+`downloadPhysicalCardPDF` rather than a top-level import in `page.tsx`.
+All three required variants rendered and visually confirmed via real
+exported PNGs: Variant A (full profile — DO NOT GIVE bar, blood type,
+allergy, condition icon, pacemaker, organ donor, all present and
+legible), Variant B (no medical data — amber "⚠️ Medical info not
+added / Scan QR for identity only" banner, no DO NOT GIVE bar), Variant
+C (DO NOT GIVE only — red bar present with two joined substances, no
+blood type/allergy lines, no incomplete banner since the test data set
+`medicalProfileCompleted: true` explicitly per the spec's own framing of
+this variant).
