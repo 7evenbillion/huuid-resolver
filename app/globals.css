@@ -1417,6 +1417,28 @@ img {
   margin-top: 6px;
 }
 
+.form-section-heading {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 32px 0 4px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.form-group > .form-section-heading:first-child,
+form > .form-section-heading:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.form-section-sub {
+  font-size: 13.5px;
+  color: var(--text-grey);
+  margin: 0 0 18px;
+}
+
 .form-optional-tag {
   font-size: 11px;
   font-weight: 600;
