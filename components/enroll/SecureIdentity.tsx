@@ -111,6 +111,7 @@ export default function SecureIdentity() {
       sessionStorage.setItem('huuid_just_created_country', data.countryCode ?? '');
       sessionStorage.setItem('huuid_just_created_sex', data.sexAtBirth ?? '');
       if (data.qrToken) sessionStorage.setItem('huuid_qr_token', data.qrToken);
+      if (data.cardTokenGeneratedAt) sessionStorage.setItem('huuid_card_token_generated_at', data.cardTokenGeneratedAt);
       router.push('/enroll/ready');
     } catch {
       setError('Could not reach the server. Check your connection and try again.');

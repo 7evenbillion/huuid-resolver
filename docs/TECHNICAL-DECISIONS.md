@@ -127,3 +127,36 @@ production resolver's actual published public key (`GET
 correctly, including `nd`. A tampered token was correctly rejected. See
 `huuid-emr-stub`'s `docs/TECHNICAL-DECISIONS.md` §14 for the verifier-
 side detail of what was wrong and how it was fixed.
+
+## 2. QR token TTL is 90 days, and every token carries `gen` (generated-at)
+
+**Decision.** `DEFAULT_TTL_SECONDS` in `lib/qr-token.ts` is `90 * 24 *
+60 * 60` (exactly), replacing an earlier undocumented 5-year default
+that was never explicitly specified. Every token now also carries `gen`
+(epoch seconds the token was signed) alongside `exp` (epoch seconds it
+stops being honored) — two different facts: `gen` is "how old is this
+data," `exp` is "when does this stop working at all." Both required
+keys on the resolver's own `QrTokenPayload` TypeScript interface (every
+token signed from here on has both), but `gen` is `.optional()` in
+`huuid-emr-stub`'s verifier schema for backward compatibility with
+tokens signed before this change existed.
+
+**Why 90 days, not something longer.** Ties directly to the medical
+profile update notification feature (`docs/HANDOFF.md` §18.14): a
+shorter TTL forces a card to eventually re-verify against the resolver
+(tier 1-3 resolution) or get re-downloaded, rather than an offline QR
+token silently carrying stale medical data for years with no signal
+that anything might have changed. `huuid-emr-stub`'s verifier already
+treated an expired-but-validly-signed token as `valid: true` (identity
+resolution was never gated on expiry) — this just makes that state
+carry a concrete, surfaced warning instead of a silent `expired: true`
+a caller might not even check. See `huuid-emr-stub`'s
+`TECHNICAL-DECISIONS.md` §15 for the verifier-side warning text and the
+`server.ts` response-shape gap found and fixed alongside it.
+
+**Verified:** built via the real `buildQrTokenPayload` function (not a
+hand-edited payload) with default TTL — `exp - gen` on the resulting
+token equals exactly 7,776,000 seconds. A second token built with
+`ttlSeconds: -3600` (the function's own parameter, still real code, not
+fabricated) produced a token that decodes as `expired: true` on the
+verifier side, `generatedAt` correctly present on both.

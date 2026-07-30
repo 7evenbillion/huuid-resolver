@@ -3,10 +3,13 @@ import { createHash, createPrivateKey, sign as cryptoSign } from 'node:crypto';
 import { deflateRawSync } from 'node:zlib';
 import { canonicalJsonStringify } from '@/lib/canonical-json';
 
-// Not specified in the enrollment spec. Defaulting to 5 years, matching the
-// reissue cycle of a typical printed medical ID card. Overridable so the
-// operator can change policy without a code change.
-const DEFAULT_TTL_SECONDS = 5 * 365 * 24 * 60 * 60;
+// Was 5 years (undocumented default, no TTL specified at the time).
+// Operator has since specified 90 days explicitly, tied to the
+// medical-profile-freshness notification feature: a shorter TTL forces
+// periodic re-verification against the resolver (or a fresh card
+// download) rather than letting a card silently drift for years.
+// Overridable so the operator can change policy without a code change.
+const DEFAULT_TTL_SECONDS = 90 * 24 * 60 * 60;
 const QR_TOKEN_VERSION = 1;
 const QR_TOKEN_ISSUER = 'huuid-self-enrolled-v1';
 
@@ -55,6 +58,12 @@ export interface QrTokenPayload {
   // own top-level key (not buried inside a general contraindications list)
   // because this is the single most safety-critical field on the card.
   nd?: { s: string; r?: string }[];
+  /** Epoch seconds this specific token was generated -- distinct from `exp`
+   * (when it stops being honored at all). Lets a verifier that DOES have
+   * connectivity judge how stale the medical data might be even before
+   * outright expiry, and lets huuid-emr-stub's offline path report a
+   * concrete "medical data may be outdated" warning once past `exp`. */
+  gen: number;
   exp: number;
   iss: string;
 }
@@ -73,10 +82,12 @@ export function buildQrTokenPayload(
   medical: MedicalProfileForToken,
   ttlSeconds: number = DEFAULT_TTL_SECONDS
 ): QrTokenPayload {
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const payload: QrTokenPayload = {
     v: QR_TOKEN_VERSION,
     huuid,
-    exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+    gen: nowSeconds,
+    exp: nowSeconds + ttlSeconds,
     iss: QR_TOKEN_ISSUER,
   };
 

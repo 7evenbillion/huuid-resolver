@@ -45,10 +45,12 @@ interface StoredMedicalProfile {
   implantedDevices: string[];
   contraindications: StoredContraindication[];
   medicalProfileCompleted: boolean;
+  medicalProfileUpdatedAt?: string | null;
 }
 
 const REMINDER_DISMISS_KEY = 'huuid_medical_reminder_dismissed';
 const REMINDER_DISMISS_DAYS = 30;
+const CARD_TOKEN_GENERATED_AT_KEY = 'huuid_card_token_generated_at';
 
 function fileSafe(name: string): string {
   return name.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '');
@@ -69,6 +71,7 @@ function CardScreen() {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [medical, setMedical] = useState<StoredMedicalProfile | null>(null);
   const [reminderDismissed, setReminderDismissed] = useState(true); // default true until checked, avoids a flash
+  const [cardTokenGeneratedAt, setCardTokenGeneratedAt] = useState<string | null>(null);
 
   useEffect(() => {
     const storedHuuid = sessionStorage.getItem('huuid_just_created');
@@ -88,6 +91,7 @@ function CardScreen() {
         setMedical(null);
       }
     }
+    setCardTokenGeneratedAt(sessionStorage.getItem(CARD_TOKEN_GENERATED_AT_KEY));
 
     const dismissedAt = Number(localStorage.getItem(REMINDER_DISMISS_KEY) ?? 0);
     const stillDismissed = dismissedAt > 0 && Date.now() - dismissedAt < REMINDER_DISMISS_DAYS * 24 * 60 * 60 * 1000;
@@ -119,6 +123,23 @@ function CardScreen() {
   const neverGive = medical?.contraindications?.filter((c) => c.severity === 'never') ?? [];
   const severeAllergies = medical?.allergies?.filter((a) => a.severity === 'severe' || a.severity === 'life-threatening') ?? [];
   const profileIncomplete = !medical || !medical.medicalProfileCompleted;
+
+  // Staleness check: is the QR token currently on this card (last
+  // generated at cardTokenGeneratedAt) older than the patient's most
+  // recent profile edit (medicalProfileUpdatedAt)? Both values come from
+  // sessionStorage, which only carries state within the same browser tab
+  // session that produced it -- this correctly catches "edited on
+  // /enroll/medical then came back to /enroll/card in the same sitting"
+  // and will correctly catch a future /api/patient/medical edit IF that
+  // page also writes to the same two sessionStorage keys before sending
+  // the patient back here. It CANNOT catch "edited my profile on my phone
+  // last week, this laptop's card is now stale" -- that needs a live
+  // per-patient lookup keyed on a persistent login, which doesn't exist
+  // yet (same root gap as /api/patient/medical's own unreachability).
+  const isCardStale =
+    !!cardTokenGeneratedAt &&
+    !!medical?.medicalProfileUpdatedAt &&
+    new Date(cardTokenGeneratedAt).getTime() < new Date(medical.medicalProfileUpdatedAt).getTime();
 
   const country = findCountry(countryCode);
   const enrollmentDate = new Date().toLocaleDateString(undefined, {
@@ -185,6 +206,18 @@ function CardScreen() {
     downloadPhysicalCardPNG(canvas, `${filenameBase}.png`);
   }, [buildCanvas, filenameBase]);
 
+  const handleDownloadUpdatedCard = useCallback(async () => {
+    setTab('print');
+    await handleDownloadPng();
+    // The card just downloaded reflects whatever is currently in
+    // sessionStorage, which is already the latest data this browser tab
+    // knows about -- so this clears the staleness flag client-side rather
+    // than re-hitting the server.
+    const now = new Date().toISOString();
+    sessionStorage.setItem(CARD_TOKEN_GENERATED_AT_KEY, now);
+    setCardTokenGeneratedAt(now);
+  }, [handleDownloadPng]);
+
   function handleDownloadQr() {
     if (!qrLarge || !huuid) return;
     const a = document.createElement('a');
@@ -213,6 +246,18 @@ function CardScreen() {
         {neverGive.length > 0 && (
           <div className="do-not-give-banner">
             🚫 DO NOT GIVE: {neverGive.map((c) => c.substance).join(', ')}
+          </div>
+        )}
+
+        {isCardStale && (
+          <div className="card-stale-banner">
+            <span>
+              ⚠️ Your medical profile has been updated since you last downloaded your card.
+              Download your new card now.
+            </span>
+            <button className="btn btn-teal" onClick={handleDownloadUpdatedCard}>
+              Download Updated Card
+            </button>
           </div>
         )}
 

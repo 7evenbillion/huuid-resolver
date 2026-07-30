@@ -8,6 +8,7 @@ import { postEnrollmentSession } from '@/lib/post-enrollment-session';
 import { writeEnrollmentAudit } from '@/lib/enrollment-audit';
 import { sendSMS, SMSDeliveryError } from '@/lib/sms';
 import { buildQrTokenPayload, signQrToken } from '@/lib/qr-token';
+import { markCardTokenGenerated } from '@/lib/card-token-timestamp';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -157,6 +158,11 @@ export async function POST(req: NextRequest) {
   const qrPayload = buildQrTokenPayload(input.huuid, {});
   const signed = signQrToken(qrPayload);
 
+  // Stamps card_token_generated_at (migration 019) so the /enroll/card
+  // staleness check has a real baseline from the moment a token first
+  // exists, not just from a later /api/patient/medical update.
+  const { cardTokenGeneratedAt, medicalProfileUpdatedAt } = await markCardTokenGenerated(client, input.huuid);
+
   return NextResponse.json({
     huuid: input.huuid,
     fullName,
@@ -165,5 +171,7 @@ export async function POST(req: NextRequest) {
     success: true,
     qrToken: signed?.token ?? null,
     qrTokenUsingInterimKey: signed?.usingInterimKey ?? null,
+    cardTokenGeneratedAt,
+    medicalProfileUpdatedAt,
   });
 }

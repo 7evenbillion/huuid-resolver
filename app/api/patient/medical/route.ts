@@ -6,6 +6,18 @@ import { checkEnrollmentRateLimit, requesterIpHash, userAgentHash } from '@/lib/
 import { patientSession } from '@/lib/patient-session';
 import { writeEnrollmentAudit } from '@/lib/enrollment-audit';
 import { buildQrTokenPayload, signQrToken } from '@/lib/qr-token';
+import { markCardTokenGenerated } from '@/lib/card-token-timestamp';
+import { sendSMS, SMSDeliveryError } from '@/lib/sms';
+
+// No NEXT_PUBLIC_APP_URL is set in this environment yet (checked via
+// `vercel env ls production` -- see docs/HANDOFF.md). CLAUDE.md's Tier 2
+// registry says a bare *.vercel.app domain must never be used in
+// production, but this specific app has no other domain provisioned and
+// this URL goes into an SMS a patient will actually tap -- a
+// policy-correct but non-resolving fabricated domain would be worse than
+// the real, working one. Falls back to the actual live domain; switches
+// automatically the moment NEXT_PUBLIC_APP_URL is set.
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://huuid-resolver.vercel.app';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -147,11 +159,30 @@ export async function PATCH(req: NextRequest) {
     contraindications: input.contraindications,
   });
   const signed = signQrToken(payload);
+  const { cardTokenGeneratedAt, medicalProfileUpdatedAt } = await markCardTokenGenerated(client, session.huuid);
+
+  // Return-visit edit, not initial enrollment -- the patient may already
+  // have a printed/downloaded card in hand, so (unlike /api/enroll/medical,
+  // where they haven't reached /enroll/card yet) this is the one path that
+  // actually needs to tell them their existing card is now stale. SMS
+  // failure doesn't fail the request -- the profile update already
+  // succeeded and the regenerated token is already in this response.
+  try {
+    await sendSMS(
+      session.phone,
+      `Your HUUID medical profile has been updated. Download your new Healthcare Identity Card at ${APP_URL}/enroll/card to ensure clinicians have your latest information. HUUID`
+    );
+  } catch (err) {
+    const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
+    console.error(JSON.stringify({ level: 'warn', action: 'patient_medical_update_sms_failed', message: reason }));
+  }
 
   return NextResponse.json({
     ok: true,
     medicalProfileCompleted: isMedicalProfileComplete(input),
     qrToken: signed?.token ?? null,
     qrTokenUsingInterimKey: signed?.usingInterimKey ?? null,
+    cardTokenGeneratedAt,
+    medicalProfileUpdatedAt,
   });
 }

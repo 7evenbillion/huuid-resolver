@@ -147,6 +147,7 @@ export default function MedicalProfileForm() {
         return;
       }
       if (data.qrToken) sessionStorage.setItem('huuid_qr_token', data.qrToken);
+      if (data.cardTokenGeneratedAt) sessionStorage.setItem('huuid_card_token_generated_at', data.cardTokenGeneratedAt);
       sessionStorage.setItem('huuid_medical_profile', JSON.stringify({
         bloodType: bloodType || null,
         allergies,
@@ -157,6 +158,7 @@ export default function MedicalProfileForm() {
         implantedDevices: finalDevices,
         contraindications,
         medicalProfileCompleted: !!data.medicalProfileCompleted,
+        medicalProfileUpdatedAt: data.medicalProfileUpdatedAt ?? null,
       }));
       router.push('/enroll/card');
     } catch {

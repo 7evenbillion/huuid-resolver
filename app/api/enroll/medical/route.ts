@@ -6,6 +6,7 @@ import { checkEnrollmentRateLimit, requesterIpHash, userAgentHash } from '@/lib/
 import { postEnrollmentSession } from '@/lib/post-enrollment-session';
 import { writeEnrollmentAudit } from '@/lib/enrollment-audit';
 import { buildQrTokenPayload, signQrToken } from '@/lib/qr-token';
+import { markCardTokenGenerated } from '@/lib/card-token-timestamp';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -88,11 +89,14 @@ export async function POST(req: NextRequest) {
     contraindications: input.contraindications,
   });
   const signed = signQrToken(payload);
+  const { cardTokenGeneratedAt, medicalProfileUpdatedAt } = await markCardTokenGenerated(client, session.huuid);
 
   return NextResponse.json({
     ok: true,
     medicalProfileCompleted: isMedicalProfileComplete(input),
     qrToken: signed?.token ?? null,
     qrTokenUsingInterimKey: signed?.usingInterimKey ?? null,
+    cardTokenGeneratedAt,
+    medicalProfileUpdatedAt,
   });
 }
