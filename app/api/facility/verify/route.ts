@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
   const { data: didDoc } = await client
     .from('huuid_did_documents')
     .select('status, did_document')
-    .eq('did', huuid)
+    .eq('huuid', huuid)
     .single();
 
   async function writeAudit(outcome: string) {
