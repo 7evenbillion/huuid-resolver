@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import jsQR from 'jsqr';
+import OfflineFallbackNotice from '@/components/facility/OfflineFallbackNotice';
 
 interface VerifyResult {
   huuid: string;
@@ -284,6 +285,7 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
             🚨 EMERGENCY ACCESS
           </Link>
         </div>
+        <OfflineFallbackNotice />
       </div>
     );
   }
@@ -397,6 +399,7 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
 
         {error && <p className="form-error-text" style={{ marginTop: 16 }}>{error}</p>}
       </div>
+      <OfflineFallbackNotice />
     </div>
   );
 }

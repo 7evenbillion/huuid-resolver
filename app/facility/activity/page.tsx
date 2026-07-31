@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { facilitySession } from '@/lib/facility-session';
 import { getServiceClient } from '@/lib/supabase-server';
+import OfflineFallbackNotice from '@/components/facility/OfflineFallbackNotice';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +49,7 @@ export default async function FacilityActivityPage() {
           ))}
         </div>
       </div>
+      <OfflineFallbackNotice />
     </div>
   );
 }

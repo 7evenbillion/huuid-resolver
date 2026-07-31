@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import CountrySelect from '@/components/enroll/CountrySelect';
 import { findCountry } from '@/lib/countries';
+import OfflineFallbackNotice from '@/components/facility/OfflineFallbackNotice';
 
 interface FormState {
   fullName: string;
@@ -112,6 +113,7 @@ export default function FacilityEnrollFlow() {
             </button>
           </div>
         </div>
+        <OfflineFallbackNotice />
       </div>
     );
   }
@@ -231,6 +233,7 @@ export default function FacilityEnrollFlow() {
           </button>
         </form>
       </div>
+      <OfflineFallbackNotice />
     </div>
   );
 }

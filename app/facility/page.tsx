@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { facilitySession } from '@/lib/facility-session';
 import NetworkStatus from '@/components/facility/NetworkStatus';
 import EmergencySupportButton from '@/components/facility/EmergencySupportButton';
+import OfflineFallbackNotice from '@/components/facility/OfflineFallbackNotice';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,10 +42,7 @@ export default async function FacilityHomePage() {
 
       <EmergencySupportButton facilityName={session.facilityName} />
 
-      <div className="facility-offline-notice">
-        If HUUID is unavailable: scan patient&apos;s QR card offline using the HUUID Stub app. Blood
-        type and allergies are always available on the card.
-      </div>
+      <OfflineFallbackNotice />
     </div>
   );
 }
