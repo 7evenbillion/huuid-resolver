@@ -9,6 +9,7 @@ export const runtime = 'nodejs';
 const schema = z.object({
   huuid: z.string().min(1),
   method: z.enum(['patient_presented_card', 'retrospective_link', 'facility_enrollment']),
+  localPatientId: z.string().trim().max(200).optional().nullable(),
 });
 
 /** Shared identity-linking endpoint (Layer 7) — used both after enrolling
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
       facility_did: session.facilityDid,
       linked_by: session.facilityDid,
       link_method: parsed.data.method,
+      local_patient_id: parsed.data.localPatientId ?? null,
     },
     { onConflict: 'huuid,facility_did', ignoreDuplicates: true }
   );

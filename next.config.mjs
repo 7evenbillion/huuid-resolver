@@ -26,6 +26,14 @@ const nextConfig = {
         source: '/1.0/audit/:huuid',
         destination: '/api/1.0/audit/:huuid',
       },
+      {
+        source: '/1.0/fhir/webhook/:facilityDID',
+        destination: '/api/1.0/fhir/webhook/:facilityDID',
+      },
+      {
+        source: '/1.0/webhook/:facilityDID/simple',
+        destination: '/api/1.0/webhook/:facilityDID/simple',
+      },
     ];
   },
 };

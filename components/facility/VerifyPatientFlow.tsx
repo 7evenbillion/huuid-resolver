@@ -239,10 +239,18 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
               <button
                 className="btn btn-white-outline btn-block"
                 onClick={async () => {
+                  const localPatientId = prompt(
+                    "Enter this patient's ID in your system (e.g. patient file number). Leave blank to link without one."
+                  );
+                  if (localPatientId === null) return;
                   const res = await fetch('/api/facility/link', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ huuid: result.huuid, method: 'patient_presented_card' }),
+                    body: JSON.stringify({
+                      huuid: result.huuid,
+                      method: 'patient_presented_card',
+                      localPatientId: localPatientId.trim() || null,
+                    }),
                   });
                   alert(res.ok ? 'Patient linked to this facility.' : 'Could not link this patient.');
                 }}
