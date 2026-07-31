@@ -236,6 +236,19 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
               <button className="btn btn-white-outline btn-block" onClick={() => alert('Visit noted.')}>
                 REGISTER NEW VISIT
               </button>
+              <button
+                className="btn btn-white-outline btn-block"
+                onClick={async () => {
+                  const res = await fetch('/api/facility/link', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ huuid: result.huuid, method: 'patient_presented_card' }),
+                  });
+                  alert(res.ok ? 'Patient linked to this facility.' : 'Could not link this patient.');
+                }}
+              >
+                Link Patient to This Facility
+              </button>
               <button className="medical-skip-link" onClick={resetAll}>
                 DONE
               </button>

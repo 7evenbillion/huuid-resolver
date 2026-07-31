@@ -103,6 +103,26 @@ export async function POST(req: NextRequest) {
 
   await writeEnrollmentAudit({ huuid: input.huuid, action: 'enrollment_completed', ipHash, userAgentHash: uaHash, outcome: 'success' });
 
+  // Layer 7: this enrollment was started from /facility/enroll (a staff
+  // member witnessing it at their facility) -- link the new HUUID to that
+  // facility now that it genuinely exists. Non-fatal: the patient's
+  // enrollment has already succeeded by this point regardless of whether
+  // the link write itself succeeds.
+  if (session.witnessingFacilityDid) {
+    const { error: linkError } = await client.from('huuid_identity_map_registry').upsert(
+      {
+        huuid: input.huuid,
+        facility_did: session.witnessingFacilityDid,
+        linked_by: session.witnessingFacilityDid,
+        link_method: 'facility_enrollment',
+      },
+      { onConflict: 'huuid,facility_did', ignoreDuplicates: true }
+    );
+    if (linkError) {
+      console.error(JSON.stringify({ level: 'warn', action: 'register_facility_link_failed', message: linkError.message }));
+    }
+  }
+
   try {
     await sendSMS(
       session.phone,
