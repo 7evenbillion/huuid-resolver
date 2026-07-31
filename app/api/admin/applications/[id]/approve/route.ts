@@ -45,6 +45,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     facility_name: app.facility_name,
     certificate_status: 'active',
     public_key_multibase: publicKeyMultibase,
+    login_phone: app.authorised_signatory_phone,
   });
   if (facilityInsertError) {
     console.error(JSON.stringify({ level: 'error', action: 'admin_approve_facility_insert_failed', message: facilityInsertError.message }));
