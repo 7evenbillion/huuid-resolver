@@ -1,6 +1,6 @@
 import 'server-only';
 import { createHash, createPrivateKey, sign as cryptoSign } from 'node:crypto';
-import { deflateRawSync } from 'node:zlib';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { canonicalJsonStringify } from '@/lib/canonical-json';
 
 // Was 5 years (undocumented default, no TTL specified at the time).
@@ -202,4 +202,33 @@ export function signQrToken(payload: QrTokenPayload): { token: string; usingInte
   const signed: SignedQrToken = { ...payload, sig: signature.toString('base64url') };
   const compressed = deflateRawSync(Buffer.from(JSON.stringify(signed), 'utf8'));
   return { token: compressed.toString('base64url'), usingInterimKey: key.usingInterimKey };
+}
+
+/**
+ * Extracts a HUUID from a raw scanned QR value (Layer 6's "Scan QR" tab).
+ * Accepts either the plain-HUUID fallback the QR may encode, or the
+ * compressed signed token (deflateRaw + base64url per the wire format
+ * above) — decoded here only to discover which patient to look up, NOT
+ * as a trust decision: the caller must still resolve fresh data from the
+ * live database. Signature verification is deliberately not performed
+ * here; that's huuid-emr-stub's job for the offline path, not this
+ * online facility-dashboard convenience lookup. Never throws — returns
+ * null for anything unparseable.
+ */
+export function extractHuuidFromScannedValue(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (/^did:huuid:[a-z]{2}:[1-9A-HJ-NP-Za-km-z]+$/.test(trimmed)) {
+    return trimmed;
+  }
+  try {
+    const compressed = Buffer.from(trimmed, 'base64url');
+    const inflated = inflateRawSync(compressed);
+    const parsed = JSON.parse(inflated.toString('utf8')) as { huuid?: unknown };
+    if (typeof parsed.huuid === 'string' && parsed.huuid.startsWith('did:huuid:')) {
+      return parsed.huuid;
+    }
+  } catch {
+    // not a valid compressed token — fall through
+  }
+  return null;
 }
