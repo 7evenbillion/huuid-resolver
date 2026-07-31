@@ -38,7 +38,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
 
   const facilityDid = generateFacilityDid(app.country_code, app.facility_name, app.government_registration_number);
-  const { publicKeyMultibase, privateKeyPem } = generateFacilityKeypair();
+  const { publicKeyMultibase, publicKeyPem, privateKeyPem } = generateFacilityKeypair();
 
   const { error: facilityInsertError } = await client.from('huuid_facilities').insert({
     facility_did: facilityDid,
@@ -63,6 +63,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     p_expires_at: expiresAt,
     p_otp_hash: hashOtp(otp),
     p_private_key_pem: privateKeyPem,
+    p_public_key_pem: publicKeyPem,
     p_pii_key: getPiiKey(),
   });
   if (deliveryError) {
