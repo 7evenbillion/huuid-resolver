@@ -9,10 +9,10 @@ interface VerifyResult {
   huuid: string;
   fullName: string | null;
   bloodType: string | null;
-  allergies: { s: string; sv?: string }[];
-  medications: { n: string }[];
+  allergies: { substance: string; severity?: string }[];
+  medications: { name: string }[];
   chronicConditions: string[];
-  contraindications: { s: string; r?: string }[];
+  contraindications: { substance: string; reason?: string }[];
   organDonor: string | null;
   pregnancyStatus: string | null;
   holdingFacilityNames: string[];
@@ -181,7 +181,7 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
   }
 
   if (result) {
-    const criticalAllergies = result.allergies.filter((a) => a.sv === 'life-threatening' || a.sv === 'severe');
+    const criticalAllergies = result.allergies.filter((a) => a.severity === 'life-threatening' || a.severity === 'severe');
     const doNotGive = result.contraindications;
 
     return (
@@ -203,14 +203,14 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
               <div className="admin-detail-row" key={i}>
                 <span className="admin-detail-label">⚠️ ALLERGY</span>
                 <span className="admin-detail-value">
-                  {a.s} {a.sv ? `(${a.sv})` : ''}
+                  {a.substance} {a.severity ? `(${a.severity})` : ''}
                 </span>
               </div>
             ))}
             {doNotGive.length > 0 && (
               <div className="admin-detail-row">
                 <span className="admin-detail-label">🚫 DO NOT GIVE</span>
-                <span className="admin-detail-value">{doNotGive.map((d) => d.s).join(', ')}</span>
+                <span className="admin-detail-value">{doNotGive.map((d) => d.substance).join(', ')}</span>
               </div>
             )}
             {result.chronicConditions.length > 0 && (
