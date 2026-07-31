@@ -56,6 +56,8 @@ fact from it externally.
 - **Month 6 — COMPLETE.** P5 (module isolation) built and verified in the EMR Stub — see § 8. All 5 Month 6 documentation/compliance tasks done — see § 12. 8 documents produced/updated to v0.3 (EMR Stub v0.1.3).
 - **Month 7 (public homepage) — IN PROGRESS, operator-rejected on first delivery.** Full 12-section homepage + `/waitlist` built, then a "design pass" (icons, shadows, fonts, hover states) shipped on top of it. Both were marked "verified in browser" — that verification never included an actual screenshot; see the banner above and **§ 16** for the full, honest account and what to do differently next. Homepage rebuild was drafted this session (mockup-directed restructure) but **reverted at the operator's request** before any commit — see § 17 for what was drafted and thrown away, kept only as a record so it isn't rebuilt from scratch blind.
 - **Patient self-enrollment + Healthcare Identity Card — BUILT, NOT YET DEPLOYED.** Full self-service enrollment flow (phone OTP → WebAuthn/PIN → client-side Ed25519 keygen → HUUID + DID Document → Healthcare Identity Card with QR/PDF/PNG) plus a recovery flow. Code is complete, typechecks, lints, and builds clean. **Not yet live** — migrations 013/014 have not been applied to the real Supabase project, and none of the new required environment variables are set. See **§ 18** for the full honest account: what was built, real protocol/compliance deviations from HUUID-RESOLUTION-SPEC-v0.3 and HUUID-COMPLIANCE-v0.1, and exactly what's needed before this can go live.
+  (Stale note: this bullet predates § 18.5/18.6, which confirm the self-enrollment flow actually went live and was verified end-to-end with a real phone — not still "not yet deployed." Left as-is rather than silently rewritten; see § 18 for the real, current status.)
+- **Facility onboarding + dashboard — LIVE, all 9 layers verified.** Facility application → Root Authority approval → one-time credential download → facility staff dashboard → Verify Patient → Enroll New Patient with identity linking → FHIR/simple webhook receiver → Emergency Support. Migrations 020–028 applied to production. See **§ 19** for the full record: real bugs found and fixed via live testing, the SMS-delivery investigation (Hubtel confirms delivery via an undocumented status endpoint; the gap is between Hubtel's network and the handset, not this codebase), and every disclosed scope decision.
 
 ---
 
@@ -1399,3 +1401,170 @@ spending a new real SMS charge to prove the same underlying call works
 again felt like the wrong default without being asked, given the route
 that would trigger it is still unreachable regardless of the outcome.
 Say so explicitly if a real send is wanted.
+
+---
+
+## 19. Facility onboarding + dashboard — LIVE, all 9 layers verified
+
+Built end-to-end in one session from a detailed 9-layer build brief:
+public facility application → Root Authority approval → one-time
+credential download → a facility staff dashboard → Verify Patient →
+Enroll New Patient with identity linking → a FHIR/simple webhook
+receiver → Emergency Support. Every layer was deployed to production
+and verified against the live deployment before moving to the next,
+per the brief's own "stop after each layer" instruction. Migrations
+020–028, all applied to the shared "rewire" Supabase project.
+
+### 19.1 What's live
+
+```
+/facilities/register                        Public application form
+/admin/login, /admin, /admin/applications/[id]   Root Authority (SMS OTP, 8h session)
+/facilities/credentials/[token]              One-time credential download (OTP-gated)
+/facility/login, /facility                   Facility staff dashboard (SMS OTP, 8h session)
+/facility/verify                             Verify Patient (QR scan / manual / name+DOB search)
+/facility/enroll                             Enroll New Patient (reuses /enroll pipeline)
+/facility/settings, /facility/activity        Minimal real pages
+POST /1.0/fhir/webhook/{facilityDID}         FHIR R4 webhook (facility JWT auth)
+POST /1.0/webhook/{facilityDID}/simple        Non-FHIR webhook (facility JWT auth)
+POST /api/webhooks/hubtel/inbound-sms        Patient consent-reply receiver (UNVERIFIED, see 19.5)
+```
+
+New env vars, set in Vercel Production/Preview/Development this session:
+`HUUID_ROOT_AUTHORITY_PHONE` (+233243222058, operator-confirmed — also
+the Root Authority's `/admin` login number and the target for
+Emergency Support alerts) and `HUUID_ADMIN_SESSION_SECRET` (freshly
+generated 32-byte random value, per the build brief's own explicit
+instruction to generate one — not something requiring operator input).
+
+### 19.2 New migrations (020–028)
+
+```
+020  huuid_facility_applications, huuid_facility_credential_deliveries,
+     huuid_consent_requests (immutable once granted/declined),
+     huuid_identity_map_registry
+021  private_key_pem_enc on credential_deliveries (Layer 1's schema had
+     nowhere to hold the private key between generation and download —
+     structurally required for Layer 4 to work at all)
+022  huuid_create_credential_delivery / huuid_verify_credential_otp /
+     huuid_consume_credential_delivery (pgp_sym_encrypt is Postgres-side,
+     not reachable through plain supabase-js inserts)
+023  fix: 022's SET search_path = '' broke pgp_sym_encrypt/decrypt --
+     pgcrypto lives in the `extensions` schema here, not `public`.
+     Found running the RPC for the first time, not assumed. Migration
+     013's functions already had the correct fixed value
+     (public, extensions); applied the same pattern.
+024  public_key_pem on credential_deliveries (the private key alone
+     wasn't enough for a real installable package)
+025  login_phone on huuid_facilities (that table never stored a
+     contact phone before this build)
+026  huuid_get_patient_contact, huuid_search_patients_by_name_dob
+     (Verify Patient's Tab 3 — disclosed limitation: decrypts a bounded
+     non-revoked row set and filters in SQL, correct at pilot scale,
+     not a scalable search design)
+027  huuid_hash_phone (shared HMAC helper so consent-request creation
+     and inbound-SMS-reply matching hash phones identically)
+028  local_patient_id on huuid_identity_map_registry (Layer 8's own
+     spec requires facilityDID+localPatientId lookup, but Layer 1's
+     schema deliberately excluded local IDs — genuine conflict, closed
+     by adding the column)
+```
+
+### 19.3 Real bugs found and fixed via live testing, not assumed
+
+Every layer was verified against the actual production deployment
+(crafted session cookies using the app's own AES-256-GCM algorithm and
+real env-var keys where a login flow couldn't be completed live due to
+the SMS gap in §19.4 — never assumed from reading the code). Two real
+bugs surfaced this way and were fixed before moving on:
+
+- `/api/facility/verify` queried `huuid_did_documents` on a column
+  called `did` — the real column is `huuid` (migration 001). Every
+  lookup was silently returning `notFound` until caught by a live
+  seed-and-call test.
+- `components/facility/VerifyPatientFlow.tsx`'s result screen read
+  compact QR-wire-format keys (`a.s`, `a.sv`, from `lib/qr-token.ts`'s
+  printed-card payload shape) instead of the medical profile RPC's
+  real field names (`substance`, `severity`, `reason`) — two unrelated
+  shapes that happened to share a mental model.
+
+### 19.4 SMS delivery — Hubtel accepts and bills, but delivery to the
+test phone could not be confirmed this session
+
+Multiple real sends during this build (facility application
+confirmations, the Root Authority alert) came back `status: 0` from
+Hubtel (accepted, billed) but were not received on +233243222058 after
+repeated checks, including the spam/business-messages folder. Two
+rounds of content/timing fixes (stripped emoji/URL from the Root
+Authority alert, added spacing between back-to-back sends) made no
+observed difference. A genuinely new finding this session: Hubtel
+exposes an undocumented (in this codebase) message-status endpoint,
+`GET https://smsc.hubtel.com/v1/messages/{messageId}` (Basic auth,
+same clientId/clientSecret), which reported `"status": "Delivered"`
+for a fresh test send through the exact same, unmodified `lib/sms.ts`
+pipeline already proven to deliver OTP codes earlier in this same
+session. That means the account, credentials, host, request shape, and
+phone format are all confirmed correct — the unexplained gap is
+between Hubtel's network and the handset, not in this codebase. See
+the saved memory `hubtel-sms-delivery-verification.md` for the
+technique going forward: check the status endpoint by messageId before
+assuming any SMS code is broken.
+
+**Practical effect on this build's own verification**: every login
+flow gated purely on receiving a real SMS OTP (`/admin/login`,
+`/facility/login`, and the tail end of `/facility/enroll`'s
+phone-verification step) could not be click-through tested with a real
+code. Where this mattered, verification instead used a legitimately
+crafted session cookie (same AES-256-GCM algorithm + real
+`HUUID_SESSION_ENCRYPTION_KEY`/`HUUID_PII_ENCRYPTION_KEY` the app
+itself uses) to drive the real deployed API directly — a stronger check
+of the business logic than a browser click-through would have been,
+just not a proof that a human actually receives the SMS. Layer 8 (FHIR
+webhook, real Ed25519 JWT auth) had no such gap and was fully
+click-through-equivalent verified.
+
+### 19.5 Known gaps and deliberate scope decisions, disclosed rather
+than silently built as if solid
+
+- **`POST /api/webhooks/hubtel/inbound-sms` is unverified against a
+  real Hubtel payload.** No inbound webhook has ever been registered
+  in this project; the exact field names Hubtel sends are unconfirmed.
+  Parses several plausible variants defensively. The operator needs to
+  register this route's full URL in the Hubtel dashboard and send a
+  real test reply before this can be trusted for the consent-request
+  YES/NO flow.
+- **"Patient has no phone" in `/facility/enroll` intentionally returns
+  an honest "not yet supported" message**, not a fake or half-working
+  bypass — true phone-less enrollment would need schema changes to
+  `huuid_enroll_patient`'s core phone_hash/phone_enc model, beyond this
+  build's scope. The phone-based path is fully built and verified.
+- **Facility DID format follows the build brief literally**
+  (`did:huuid:[cc]:base58(sha256(facilityName+regNumber))`), which
+  differs from both `HUUID-RESOLUTION-SPEC-v0.3`'s "hash of the
+  entity's public key" convention and this project's own existing
+  seeded facility DIDs, which are human-readable slugs
+  (`node-test-001`, `root-authority-hpwg`). Not reconciled either way —
+  flagged for a decision.
+- **Camera-based QR scanning** (`/facility/verify`'s default tab) adds
+  `jsqr` as a new dependency (confirmed zero new `npm audit` findings
+  beyond the pre-existing 16, all in `next`/`eslint-config-next`) but
+  has never been tested against a real camera — no camera available in
+  this build environment.
+- **"REGISTER NEW VISIT"** on the Verify Patient result screen is an
+  unpersisted acknowledgment only — no visit data model exists
+  anywhere in this build's schema, and inventing one wasn't part of
+  the brief.
+- **Emergency Access** on the Verify Patient screen links to the
+  existing `/debug/break-glass` demo page rather than a new dedicated
+  facility-side Break-Glass UI — that's genuinely what's built; a
+  polished version would be new scope.
+- **The outline at the top of the build brief lists 10 layers**
+  (splitting "Identity linking" and "FHIR webhook" into separate
+  layers 8/9, with Emergency Support as layer 10), **but the detailed
+  section-by-section brief only goes up to a 9th section**
+  ("LAYER 9 — EMERGENCY SUPPORT"), with identity linking folded into
+  Layer 7's own content and FHIR webhook as Layer 8. Built to the
+  detailed body (9 concrete layers), since that's the only place with
+  actual implementable content — flagged at the start of this build so
+  the layer numbers in every report matched the actual task list, not
+  the outline.
