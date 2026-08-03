@@ -57,7 +57,7 @@ fact from it externally.
 - **Month 7 (public homepage) — IN PROGRESS, operator-rejected on first delivery.** Full 12-section homepage + `/waitlist` built, then a "design pass" (icons, shadows, fonts, hover states) shipped on top of it. Both were marked "verified in browser" — that verification never included an actual screenshot; see the banner above and **§ 16** for the full, honest account and what to do differently next. Homepage rebuild was drafted this session (mockup-directed restructure) but **reverted at the operator's request** before any commit — see § 17 for what was drafted and thrown away, kept only as a record so it isn't rebuilt from scratch blind.
 - **Patient self-enrollment + Healthcare Identity Card — BUILT, NOT YET DEPLOYED.** Full self-service enrollment flow (phone OTP → WebAuthn/PIN → client-side Ed25519 keygen → HUUID + DID Document → Healthcare Identity Card with QR/PDF/PNG) plus a recovery flow. Code is complete, typechecks, lints, and builds clean. **Not yet live** — migrations 013/014 have not been applied to the real Supabase project, and none of the new required environment variables are set. See **§ 18** for the full honest account: what was built, real protocol/compliance deviations from HUUID-RESOLUTION-SPEC-v0.3 and HUUID-COMPLIANCE-v0.1, and exactly what's needed before this can go live.
   (Stale note: this bullet predates § 18.5/18.6, which confirm the self-enrollment flow actually went live and was verified end-to-end with a real phone — not still "not yet deployed." Left as-is rather than silently rewritten; see § 18 for the real, current status.)
-- **Facility onboarding + dashboard — LIVE, all 9 layers verified.** Facility application → Root Authority approval → one-time credential download → facility staff dashboard → Verify Patient → Enroll New Patient with identity linking → FHIR/simple webhook receiver → Emergency Support. Migrations 020–028 applied to production. See **§ 19** for the full record: real bugs found and fixed via live testing, the SMS-delivery investigation (Hubtel confirms delivery via an undocumented status endpoint; the gap is between Hubtel's network and the handset, not this codebase), and every disclosed scope decision.
+- **Facility onboarding + dashboard — LIVE, all 9 layers verified. SMS delivery PAUSED (2026-08-03) — confirmed Hubtel account-side defect, escalated to Hubtel support.** Facility application → Root Authority approval → one-time credential download → facility staff dashboard → Verify Patient → Enroll New Patient with identity linking → FHIR/simple webhook receiver → Emergency Support. Migrations 020–028 applied to production. See **§ 19** (especially **§ 19.4.1**) for the full record: real bugs found and fixed via live testing, and the SMS investigation across two Hubtel accounts, two phone numbers, and four sender IDs that confirmed the fault is on Hubtel's side, not this codebase. Do not resume SMS debugging without checking with the operator first.
 
 ---
 
@@ -1522,6 +1522,54 @@ of the business logic than a browser click-through would have been,
 just not a proof that a human actually receives the SMS. Layer 8 (FHIR
 webhook, real Ed25519 JWT auth) had no such gap and was fully
 click-through-equivalent verified.
+
+#### 19.4.1 Follow-up investigation (2026-08-03) — confirmed Hubtel
+account-side defect, SMS delivery PAUSED
+
+A dedicated follow-up session dug further, on explicit instruction not
+to touch application code, not to try Africa's Talking, and not to
+guess — build isolated diagnostic endpoints only, record exact
+HTTP/API data, nothing else. Two temporary, uncommitted debug routes
+were used for this (`/api/debug/sms-test`, `/api/debug/sms-sender-test`
+— not part of the app, not in git history, safe to delete):
+
+- **Two different phone numbers** (+233243222058, +233560700700), same
+  account (`BEDWATCHAFR`, client `xqfu...`): both non-receipt,
+  confirmed by the device owner directly, every time.
+- **Four different `from` sender-ID values** requested on that same
+  account (`BEDWATCHAFR`, `HUUID`, `INFO`, `TEST`): all four were
+  silently overridden by Hubtel to `BEDWATCHAFR` regardless of what was
+  requested (confirmed via the status-check endpoint's own `"from"`
+  field on each) — this account cannot actually send under a different
+  sender ID via this parameter at all.
+- **A second, entirely different Hubtel account** was tested (client
+  `jeobvodv`, sender `Babykaafo`, credentials from the operator's own
+  dashboard screenshot, used once, never persisted in this codebase):
+  the message stayed at `"status": "Sent"` permanently — no delivery
+  receipt ever came back, even minutes later — a different failure
+  signature from the first account's always-"Delivered".
+- **Every send on the `BEDWATCHAFR` account** (7+ across this whole
+  investigation) reported `"status": "Delivered"` via
+  `GET /v1/messages/{messageId}` within seconds. **None were received.**
+
+**Conclusion:** the `BEDWATCHAFR` account's "Delivered" status is not
+trustworthy evidence of real delivery — something in Hubtel's own
+pipeline for this specific account is generating a delivery receipt
+that does not correspond to a message reaching a real device. This is
+a genuine defect on Hubtel's side, evidenced across two accounts, two
+numbers, and four sender IDs — not something fixable from this
+codebase. Full message IDs, timestamps, and the exact evidence packet
+prepared for Hubtel support are preserved in the saved memory
+`hubtel-sms-delivery-verification.md` (updated 2026-08-03, supersedes
+its 2026-07-31 version's assumption that "Delivered" could be trusted).
+
+**SMS delivery work is PAUSED as of this session.** Escalated to
+Hubtel support directly by the operator. Do not resume SMS-dependent
+feature testing or further `lib/sms.ts` debugging until Hubtel
+responds — check with the operator first. The two temporary debug
+routes above should be deleted once this is resolved (or sooner, per
+Rule 4 — debug routes are for build-time use only, remove before any
+public launch).
 
 ### 19.5 Known gaps and deliberate scope decisions, disclosed rather
 than silently built as if solid
