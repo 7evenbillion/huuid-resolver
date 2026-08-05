@@ -34,7 +34,7 @@ export async function isEd25519Supported(): Promise<boolean> {
   }
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
@@ -145,7 +145,7 @@ export function isObviousPin(pin: string): boolean {
   return OBVIOUS_PIN_PATTERNS.includes(pin);
 }
 
-function base64ToBytes(b64: string): Uint8Array {
+export function base64ToBytes(b64: string): Uint8Array {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -194,5 +194,58 @@ export async function attemptDecryptPrivateKey(input: {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * my-huuid Layer 1 (PIN login): decrypts the private key with the entered
+ * PIN, then immediately uses it to sign a server-issued nonce, returning
+ * only the signature -- the decrypted private key bytes never leave this
+ * function and are zeroed right after signing. The server verifies the
+ * signature against the patient's already-public DID Document key
+ * (POST /api/my-huuid/login/pin/verify) as cryptographic proof of PIN
+ * knowledge, rather than trusting a client-asserted "decrypt succeeded"
+ * boolean, which anyone could fake. Returns null on any failure (wrong
+ * PIN, corrupt data) -- the caller shows "Incorrect PIN."
+ */
+export async function decryptAndSignChallenge(input: {
+  encryptedPrivateKeyB64: string;
+  pbkdf2SaltB64: string;
+  pbkdf2IvB64: string;
+  pin: string;
+  nonceB64: string;
+}): Promise<string | null> {
+  try {
+    const salt = base64ToBytes(input.pbkdf2SaltB64);
+    const iv = base64ToBytes(input.pbkdf2IvB64);
+    const ciphertext = base64ToBytes(input.encryptedPrivateKeyB64);
+    const nonce = base64ToBytes(input.nonceB64);
+
+    const keyMaterial = await window.crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(input.pin),
+      'PBKDF2',
+      false,
+      ['deriveKey']
+    );
+    const decryptionKey = await window.crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt as BufferSource, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt']
+    );
+
+    const pkcs8Bytes = new Uint8Array(
+      await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as BufferSource }, decryptionKey, ciphertext as BufferSource)
+    );
+
+    const privateKey = await window.crypto.subtle.importKey('pkcs8', pkcs8Bytes as BufferSource, { name: 'Ed25519' }, false, ['sign']);
+    const signatureBuffer = await window.crypto.subtle.sign('Ed25519', privateKey, nonce as BufferSource);
+
+    pkcs8Bytes.fill(0);
+    return bytesToBase64(new Uint8Array(signatureBuffer));
+  } catch {
+    return null;
   }
 }
