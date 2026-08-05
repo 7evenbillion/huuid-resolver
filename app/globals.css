@@ -1802,6 +1802,141 @@ form > .form-section-heading:first-child {
   margin-left: 6px;
 }
 
+/* ---------- /my-huuid patient dashboard ---------- */
+
+.myhuuid-page {
+  min-height: 100vh;
+  background: var(--white);
+  display: flex;
+  flex-direction: column;
+}
+
+.myhuuid-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.myhuuid-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.myhuuid-name {
+  font-weight: 700;
+  color: var(--navy);
+  font-size: 15px;
+}
+
+.myhuuid-id {
+  font-size: 12px;
+  color: var(--text-grey);
+  font-family: monospace;
+}
+
+.myhuuid-signout-btn {
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--navy);
+  cursor: pointer;
+}
+
+.myhuuid-signout-btn:hover {
+  border-color: var(--teal);
+}
+
+.myhuuid-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 32px 20px 60px;
+  gap: 24px;
+}
+
+.myhuuid-welcome {
+  color: var(--text-grey);
+  font-size: 15px;
+  margin: 0;
+}
+
+.myhuuid-card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+  max-width: 520px;
+}
+
+.myhuuid-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 150px;
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 12px;
+  text-align: center;
+  text-decoration: none;
+  color: var(--navy);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.myhuuid-card:hover {
+  border-color: var(--teal);
+  transform: translateY(-2px);
+}
+
+.myhuuid-card-icon {
+  font-size: 32px;
+}
+
+.myhuuid-card-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.myhuuid-card-sub {
+  font-size: 12px;
+  color: var(--text-grey);
+}
+
+.myhuuid-footer-links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.myhuuid-footer-links a {
+  color: var(--text-grey);
+  text-decoration: none;
+}
+
+.myhuuid-footer-links a:hover {
+  color: var(--teal);
+}
+
+.myhuuid-footer-dot {
+  color: var(--border);
+}
+
+@media (max-width: 480px) {
+  .myhuuid-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- Country dropdown with search ---------- */
 
 .country-select-wrap {
