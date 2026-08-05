@@ -40,6 +40,27 @@ export const registerSchema = z.object({
   webauthn_credential_id: z.string().optional().nullable(),
 });
 
+/** my-huuid Layer 3 — profile edit. Deliberately excludes phone and
+ * countryCode (see migration 030's header comment for why). */
+export const patientProfileUpdateSchema = z.object({
+  fullName: z.string().trim().min(2).max(200),
+  dateOfBirth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be YYYY-MM-DD.')
+    .refine((v) => {
+      const d = new Date(v);
+      return !Number.isNaN(d.getTime()) && d <= new Date() && d >= new Date('1900-01-01');
+    }, 'Date of birth must be between 1900-01-01 and today.'),
+  sexAtBirth: z.enum(['male', 'female', 'intersex']),
+  emergencyContactName: z.string().trim().max(200).optional().nullable(),
+  emergencyContactPhone: z
+    .string()
+    .refine((v) => !v || isValidE164(v), 'Emergency contact phone must be in E.164 format.')
+    .optional()
+    .nullable(),
+  email: z.string().trim().email().optional().nullable(),
+});
+
 export const recoverStartSchema = z.object({
   phone: z.string().refine(isValidE164, 'Phone number must be in E.164 format.'),
 });

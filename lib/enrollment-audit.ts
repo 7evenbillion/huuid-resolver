@@ -11,7 +11,8 @@ export type EnrollmentAuditAction =
   | 'recovery_requested'
   | 'erasure_requested'
   | 'erasure_completed'
-  | 'medical_profile_updated';
+  | 'medical_profile_updated'
+  | 'profile_updated';
 
 interface AuditInput {
   huuid: string | null;
