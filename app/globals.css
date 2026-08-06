@@ -1970,6 +1970,99 @@ form > .form-section-heading:first-child {
   border-radius: var(--radius-pill);
 }
 
+/* ---------- /my-huuid access history ---------- */
+
+.myhuuid-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.myhuuid-history-card {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+
+.myhuuid-history-card-emergency {
+  border-color: #b3261e;
+  background: #fdf3f2;
+}
+
+.myhuuid-history-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.myhuuid-history-datetime {
+  font-size: 12.5px;
+  color: var(--text-grey);
+}
+
+.myhuuid-history-facility {
+  font-weight: 700;
+  color: var(--navy);
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.myhuuid-history-meta {
+  font-size: 12.5px;
+  color: var(--text-grey);
+  margin-bottom: 2px;
+}
+
+.myhuuid-history-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.myhuuid-history-badge-neutral {
+  background: var(--grey-bg);
+  color: var(--text-grey);
+}
+
+.myhuuid-history-badge-emergency {
+  background: #b3261e;
+  color: var(--white);
+}
+
+.myhuuid-history-outcome-success {
+  color: #1a8f4c;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.myhuuid-history-outcome-fail {
+  color: #b3261e;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.myhuuid-history-outcome-neutral {
+  color: var(--text-grey);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.myhuuid-history-emergency-note {
+  font-size: 13px;
+  color: var(--navy);
+  margin: 10px 0 0;
+}
+
+.myhuuid-history-privacy-notice {
+  margin-top: 28px;
+  font-size: 12.5px;
+  color: var(--text-grey);
+  text-align: center;
+}
+
 /* ---------- Country dropdown with search ---------- */
 
 .country-select-wrap {
