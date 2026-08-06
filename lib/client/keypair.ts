@@ -198,6 +198,72 @@ export async function attemptDecryptPrivateKey(input: {
 }
 
 /**
+ * my-huuid Layer 8 (Change PIN): decrypts the private key with the
+ * current PIN, then re-encrypts it under a NEW PIN with a fresh random
+ * salt and IV -- a new PIN, by AES-GCM's construction, cannot decrypt a
+ * blob encrypted under the old one, so the only way to "change" it is to
+ * decrypt-then-re-encrypt. The raw private key bytes only ever exist in
+ * this function's local scope (never returned, never sent anywhere) and
+ * are zeroed immediately after re-encryption -- only the new encrypted
+ * blob + salt + iv are returned, matching the same "raw key never leaves
+ * the browser" rule as generateHuuidIdentity. Returns null on any
+ * failure (wrong current PIN, corrupt data) -- the caller shows
+ * "Incorrect current PIN."
+ */
+export async function reencryptPrivateKeyWithNewPin(input: {
+  encryptedPrivateKeyB64: string;
+  pbkdf2SaltB64: string;
+  pbkdf2IvB64: string;
+  currentPin: string;
+  newPin: string;
+}): Promise<{ encryptedPrivateKeyB64: string; pbkdf2SaltB64: string; pbkdf2IvB64: string } | null> {
+  try {
+    const oldSalt = base64ToBytes(input.pbkdf2SaltB64);
+    const oldIv = base64ToBytes(input.pbkdf2IvB64);
+    const ciphertext = base64ToBytes(input.encryptedPrivateKeyB64);
+
+    const oldKeyMaterial = await window.crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(input.currentPin),
+      'PBKDF2',
+      false,
+      ['deriveKey']
+    );
+    const decryptionKey = await window.crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: oldSalt as BufferSource, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+      oldKeyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['decrypt']
+    );
+
+    let privateKeyBytes = new Uint8Array(
+      await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: oldIv as BufferSource }, decryptionKey, ciphertext as BufferSource)
+    );
+
+    const newSalt = window.crypto.getRandomValues(new Uint8Array(32));
+    const newIv = window.crypto.getRandomValues(new Uint8Array(12));
+    const encryptionKey = await deriveEncryptionKey(input.newPin, newSalt);
+    const encryptedBuffer = await window.crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: newIv },
+      encryptionKey,
+      privateKeyBytes
+    );
+
+    privateKeyBytes.fill(0);
+    privateKeyBytes = new Uint8Array(0);
+
+    return {
+      encryptedPrivateKeyB64: bytesToBase64(new Uint8Array(encryptedBuffer)),
+      pbkdf2SaltB64: bytesToBase64(newSalt),
+      pbkdf2IvB64: bytesToBase64(newIv),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * my-huuid Layer 1 (PIN login): decrypts the private key with the entered
  * PIN, then immediately uses it to sign a server-issued nonce, returning
  * only the signature -- the decrypted private key bytes never leave this

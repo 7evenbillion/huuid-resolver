@@ -2155,6 +2155,79 @@ form > .form-section-heading:first-child {
   color: var(--text-grey);
 }
 
+/* ---------- /my-huuid security settings ---------- */
+
+.myhuuid-settings-section {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.myhuuid-settings-coming-soon {
+  background: var(--grey-bg);
+}
+
+.myhuuid-settings-note {
+  font-size: 13.5px;
+  color: var(--text-grey);
+  margin: 8px 0 0;
+}
+
+.myhuuid-settings-verified-card {
+  background: #e3f5ea;
+  border: 1.5px solid #1a8f4c;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13.5px;
+  color: var(--navy);
+}
+
+.myhuuid-settings-unverified-card {
+  background: #fff8ea;
+  border: 1.5px solid #b3821a;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13.5px;
+  color: var(--navy);
+}
+
+.myhuuid-delete-section {
+  border-color: #b3261e;
+  background: #fdf3f2;
+}
+
+.myhuuid-delete-warning {
+  background: var(--white);
+  border: 1.5px solid #b3261e;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--navy);
+  margin-bottom: 16px;
+}
+
+.myhuuid-delete-btn {
+  width: 100%;
+  background: #b3261e;
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius);
+  padding: 14px;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.myhuuid-delete-btn:hover {
+  background: #97201a;
+}
+
+.myhuuid-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ---------- Country dropdown with search ---------- */
 
 .country-select-wrap {

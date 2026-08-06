@@ -85,7 +85,7 @@ export default async function MyHuuidHomePage() {
         <div className="myhuuid-footer-links">
           <Link href="/my-huuid/consent">Consent Management</Link>
           <span className="myhuuid-footer-dot">·</span>
-          <Link href="/my-huuid/security">Security Settings</Link>
+          <Link href="/my-huuid/settings">Security Settings</Link>
         </div>
       </div>
     </div>

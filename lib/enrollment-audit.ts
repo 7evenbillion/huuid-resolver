@@ -12,7 +12,8 @@ export type EnrollmentAuditAction =
   | 'erasure_requested'
   | 'erasure_completed'
   | 'medical_profile_updated'
-  | 'profile_updated';
+  | 'profile_updated'
+  | 'pin_changed';
 
 interface AuditInput {
   huuid: string | null;
