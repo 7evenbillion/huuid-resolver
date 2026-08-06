@@ -2063,6 +2063,98 @@ form > .form-section-heading:first-child {
   text-align: center;
 }
 
+/* ---------- /my-huuid consent management ---------- */
+
+.myhuuid-consent-card {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 14px;
+}
+
+.myhuuid-consent-line {
+  font-size: 13px;
+  color: var(--text-grey);
+  margin: 10px 0 4px;
+}
+
+.myhuuid-consent-list {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--navy);
+}
+
+.myhuuid-consent-countdown {
+  display: inline-block;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #b3261e;
+  margin: 8px 0 14px;
+}
+
+.myhuuid-consent-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.myhuuid-consent-grant-btn {
+  flex: 1;
+  background: #1a8f4c;
+  color: var(--white);
+  border: none;
+}
+
+.myhuuid-consent-grant-btn:hover {
+  background: #157a3f;
+}
+
+.myhuuid-consent-decline-btn {
+  flex: 1;
+  background: var(--white);
+  color: #b3261e;
+  border: 1.5px solid #b3261e;
+}
+
+.myhuuid-consent-decline-btn:hover {
+  background: #fdf3f2;
+}
+
+.myhuuid-consent-sms-notice {
+  margin-top: 20px;
+  font-size: 13px;
+}
+
+.myhuuid-consent-badge-granted {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: #e3f5ea;
+  color: #1a8f4c;
+}
+
+.myhuuid-consent-badge-declined {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: #fdf3f2;
+  color: #b3261e;
+}
+
+.myhuuid-consent-badge-expired {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--grey-bg);
+  color: var(--text-grey);
+}
+
 /* ---------- Country dropdown with search ---------- */
 
 .country-select-wrap {
