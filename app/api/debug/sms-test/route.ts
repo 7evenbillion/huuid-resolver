@@ -13,14 +13,16 @@ export const runtime = 'nodejs';
  */
 export async function POST(req: NextRequest) {
   let bodyPhone: string | null = null;
+  let bodyMessage: string | null = null;
   try {
-    const body = (await req.json()) as { to?: string };
+    const body = (await req.json()) as { to?: string; message?: string };
     bodyPhone = body?.to ?? null;
+    bodyMessage = body?.message ?? null;
   } catch {
-    // no body / not JSON -- fall back to default number below
+    // no body / not JSON -- fall back to defaults below
   }
   const testNumber = bodyPhone || '+233243222058';
-  const message = `HUUID standalone test ${Date.now()}. If you receive this, delivery from production works. HUUID`;
+  const message = bodyMessage || `HUUID standalone test ${Date.now()}. If you receive this, delivery from production works. HUUID`;
 
   try {
     const result = await sendSMS(testNumber, message);
