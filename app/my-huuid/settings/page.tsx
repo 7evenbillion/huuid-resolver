@@ -192,16 +192,6 @@ export default function MyHuuidSettingsPage() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="admin-page">
-        <div className="admin-shell" style={{ maxWidth: 560 }}>
-          <p className="form-helper">Loading…</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="admin-page">
       <div className="admin-shell" style={{ maxWidth: 560 }}>
@@ -276,7 +266,9 @@ export default function MyHuuidSettingsPage() {
         {/* Section 3 — Identity Verification */}
         <div className="myhuuid-settings-section">
           <h2 className="medical-section-title">Identity Verification</h2>
-          {security?.identityVerified ? (
+          {loading ? (
+            <p className="form-helper">Loading…</p>
+          ) : security?.identityVerified ? (
             <div className="myhuuid-settings-verified-card">
               <p style={{ fontWeight: 700, margin: '0 0 8px' }}>✓ Identity Verified</p>
               <p style={{ margin: '0 0 4px' }}>Verified by: {security.identityVerifiedMethod}</p>
