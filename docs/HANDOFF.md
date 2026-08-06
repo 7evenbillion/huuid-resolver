@@ -1578,6 +1578,61 @@ routes above should be deleted once this is resolved (or sooner, per
 Rule 4 — debug routes are for build-time use only, remove before any
 public launch).
 
+#### 19.4.2 Account switch (2026-08-06) — BEDWATCHAFR retired, new
+dedicated `HUUID`/`rsosgssz` account active, receipt confirmation PENDING
+
+Per operator instruction, switched off the `BEDWATCHAFR` account
+entirely rather than continuing to debug it. **`lib/sms.ts` itself
+needed zero code changes** — Hubtel was already primary and the
+`smsc.hubtel.com` GET query-string format (§ 18.8) was already correct;
+only credentials changed.
+
+```
+Old (retired):  clientId xqfu... , sender BEDWATCHAFR
+New (active):   clientId rsosgssz, secret nvwhjgil, sender HUUID
+```
+
+- All three `HUBTEL_*` variables (`HUBTEL_CLIENT_ID`,
+  `HUBTEL_CLIENT_SECRET`, `HUBTEL_SENDER_ID`) removed and re-added
+  across Vercel Production, Preview, and Development via `vercel env
+  rm`/`vercel env add` (Vercel CLI, confirmed installed and working in
+  this session — an earlier session-start note claiming it wasn't
+  installed was stale/environment-specific).
+- Forced a fresh production deployment (`vercel --prod`,
+  `dpl_SUsRUk6Zue6jD9nqhtKrv32fX6bm`) immediately after, rather than
+  assuming the already-running deployment would pick up the new values.
+- `/api/debug/sms-test` (the existing temporary debug route from
+  § 19.4.1, not a new implementation) was generalized to accept an
+  optional `message` field in its POST body — the only code change
+  made — so the exact operator-specified test text could be sent
+  through the real `lib/sms.ts` pipeline rather than the route's own
+  hardcoded diagnostic string.
+- **Real send confirmed via the new account**: `POST
+  /api/debug/sms-test` with `{"to":"+233243222058","message":"HUUID
+  test. If you receive this your messaging is working. HUUID"}`
+  returned `{"ok":true,"success":true,"provider":"hubtel","messageId":
+  "70f8ce6c-2af5-4d17-b44e-ee95b09bea47", "sentAt":
+  "2026-08-06T11:03:24.051Z"}`. A follow-up send (different wording, to
+  rule out any per-message caching artifact) confirmed the Hubtel
+  status-check endpoint (`GET
+  https://smsc.hubtel.com/v1/messages/{messageId}`) returns the
+  **correct** `from: "HUUID"` and the **correct, matching** message
+  content this time — unlike `BEDWATCHAFR`, which silently overrode
+  every requested sender ID back to itself (§ 19.4.1). `status:
+  "Delivered"` was reported within ~2 seconds both times.
+- **Per § 19.4.1's own hard-learned lesson, `"Delivered"` from this
+  status endpoint is NOT by itself trustworthy evidence of real
+  handset delivery** — that was exactly `BEDWATCHAFR`'s failure mode
+  (false-positive `"Delivered"` on every send, nothing ever arrived).
+  **Real confirmation requires the operator to actually receive the
+  message on +233243222058 — this had NOT happened as of this
+  writing.** Do not treat this account switch as verified-working, and
+  do not run the 5 facility SMS tests, until that confirmation lands.
+- If the operator reports the message did NOT arrive: the exact
+  Hubtel response bodies above are the starting evidence — check the
+  status endpoint by messageId first (§ 19.4.1's technique), do not
+  guess or re-try format changes.
+
 ### 19.5 Known gaps and deliberate scope decisions, disclosed rather
 than silently built as if solid
 
