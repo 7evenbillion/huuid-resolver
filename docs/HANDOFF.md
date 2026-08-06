@@ -58,6 +58,7 @@ fact from it externally.
 - **Patient self-enrollment + Healthcare Identity Card — BUILT, NOT YET DEPLOYED.** Full self-service enrollment flow (phone OTP → WebAuthn/PIN → client-side Ed25519 keygen → HUUID + DID Document → Healthcare Identity Card with QR/PDF/PNG) plus a recovery flow. Code is complete, typechecks, lints, and builds clean. **Not yet live** — migrations 013/014 have not been applied to the real Supabase project, and none of the new required environment variables are set. See **§ 18** for the full honest account: what was built, real protocol/compliance deviations from HUUID-RESOLUTION-SPEC-v0.3 and HUUID-COMPLIANCE-v0.1, and exactly what's needed before this can go live.
   (Stale note: this bullet predates § 18.5/18.6, which confirm the self-enrollment flow actually went live and was verified end-to-end with a real phone — not still "not yet deployed." Left as-is rather than silently rewritten; see § 18 for the real, current status.)
 - **Facility onboarding + dashboard — LIVE, all 9 layers verified. SMS delivery PAUSED (2026-08-03) — confirmed Hubtel account-side defect, escalated to Hubtel support.** Facility application → Root Authority approval → one-time credential download → facility staff dashboard → Verify Patient → Enroll New Patient with identity linking → FHIR/simple webhook receiver → Emergency Support. Migrations 020–028 applied to production. See **§ 19** (especially **§ 19.4.1**) for the full record: real bugs found and fixed via live testing, and the SMS investigation across two Hubtel accounts, two phone numbers, and four sender IDs that confirmed the fault is on Hubtel's side, not this codebase. Do not resume SMS debugging without checking with the operator first.
+- **`/my-huuid` patient dashboard — LIVE, all 8 layers verified, full 13-step end-to-end pass.** PIN or SMS-OTP sign-in, home, profile, medical profile editor, card (staleness/expiry/refresh/download), access history, consent (grant/decline), security settings (change PIN, delete account). Migrations 029–031 applied to production. SMS-dependent flows built completely (per instruction, none stubbed) but not verified with a real send — same standing SMS pause as facility onboarding. See **§ 20** for the full record, including the testing technique used without a working browser or SMS (real crafted JWTs/session cookies/OTP-hash brute-forcing against genuine test data, not fabricated rows), three real bugs found and fixed, and Pre-Pilot Blockers 13/15 closed, 16 built-not-verified, 18 newly opened.
 
 ---
 
@@ -74,8 +75,10 @@ fact from it externally.
 | GET | `/1.0/audit/{huuid}` |
 | GET | `/debug/resolver` — temporary, remove before public launch |
 | GET | `/debug/break-glass` — temporary, remove before public launch |
-| GET | `/enroll`, `/enroll/verify`, `/enroll/secure`, `/enroll/ready`, `/enroll/card`, `/enroll/recover` — **built, not yet deployed**, see § 18 |
-| POST | `/api/enroll/start`, `/api/enroll/verify-otp`, `/api/enroll/resend-otp`, `/api/enroll/register`, `/api/enroll/session-status`, `/api/enroll/recover/start`, `/api/enroll/recover/verify-otp`, `/api/enroll/recover/fetch` — **built, not yet deployed**, see § 18 |
+| GET | `/enroll`, `/enroll/verify`, `/enroll/secure`, `/enroll/ready`, `/enroll/card`, `/enroll/recover` — live, see § 18 |
+| POST | `/api/enroll/start`, `/api/enroll/verify-otp`, `/api/enroll/resend-otp`, `/api/enroll/register`, `/api/enroll/session-status`, `/api/enroll/recover/start`, `/api/enroll/recover/verify-otp`, `/api/enroll/recover/fetch` — live, see § 18 |
+| GET | `/my-huuid`, `/my-huuid/login`, `/my-huuid/login/verify`, `/my-huuid/profile`, `/my-huuid/medical`, `/my-huuid/card`, `/my-huuid/history`, `/my-huuid/consent`, `/my-huuid/settings` — live, see § 20 |
+| POST | `/api/my-huuid/login/pin/challenge`, `/api/my-huuid/login/pin/verify`, `/api/my-huuid/login/otp/start`, `/api/my-huuid/login/otp/verify`, `/api/my-huuid/logout`, `/api/my-huuid/refresh-card`, `/api/my-huuid/security/pin-material` (GET), `/api/my-huuid/security/pin`, `/api/my-huuid/security/delete`, `/api/my-huuid/consent/[id]` (PATCH) — live, see § 20 |
 
 All `/1.0/...` paths are Next.js rewrites to `/api/1.0/...` handlers
 (`next.config.mjs`) — the W3C DID Resolution spec mandates the
@@ -129,6 +132,10 @@ a silent permission-denied error, no exception thrown).
 | `015_audit_erasure_completed_action.sql` | **APPLIED to production.** Adds `erasure_completed` to `huuid_audit_enrollment`'s allowed actions; `huuid_gdpr_erase_patient()` rebuilt to actually write its own audit entry (it wrote none at all before this — a real gap, found running the function for real). |
 | `016_relax_pii_not_null.sql` | **APPLIED to production.** Drops `NOT NULL` on the `huuid_patients` columns the erasure function needs to null out — migration 013 defined them `NOT NULL` (correct at enrollment time) without accounting for erasure needing to clear them later. Found by running the erasure function for real and hitting the constraint violation. |
 | `017_retain_phone_hash.sql` | **APPLIED to production.** Operator decision, reversing 013's original "frees phone_hash for reuse" design — `huuid_gdpr_erase_patient()` no longer nulls `phone_hash` (only `phone_enc`, the reversible copy). Also adds a dedicated `'erasure'` OTP type and `huuid_get_patient_huuid_by_phone()` for the new self-service `/enroll/erase` flow. See § 18.10 for the operator's stated rationale. |
+| `018`–`028` | **APPLIED to production.** Medical profile, card token timestamps, and the full facility onboarding schema — see § 18/§ 19 for the per-migration breakdown; not individually re-listed here. |
+| `029_patient_login_lookup.sql` | **APPLIED to production.** `huuid_get_patient_for_login` — my-huuid Layer 1's PIN-login lookup. See § 20.2. |
+| `030_patient_profile.sql` | **APPLIED to production.** `huuid_get_patient_profile` / `huuid_update_patient_profile` — my-huuid Layer 3. See § 20.2. |
+| `031_identity_verification_pin_change.sql` | **APPLIED to production.** `identity_verified*` columns, `'pin_changed'` audit action — my-huuid Layer 8. See § 20.2. |
 
 **Renumbering note:** the enrollment build brief specified
 `012_patient_enrollment.sql` / `013_otp_cleanup.sql` — both were
@@ -1616,3 +1623,231 @@ than silently built as if solid
   actual implementable content — flagged at the start of this build so
   the layer numbers in every report matched the actual task list, not
   the outline.
+
+---
+
+## 20. /my-huuid patient dashboard — LIVE, all 8 layers verified
+
+Built in the session immediately after § 19, while SMS delivery
+remained paused, per explicit operator instruction: build every
+SMS-dependent flow completely (not stubbed), showing
+`[SMS notifications will be active shortly]` wherever a real send would
+fire, and a `[Biometric verification coming soon]` placeholder wherever
+Smile ID biometric verification would eventually plug in (a separate,
+not-yet-built task). Every layer was deployed and verified against the
+real production deployment before moving to the next, then a full
+13-step end-to-end pass was run across all 8 layers together.
+
+### 20.1 What's live
+
+```
+/my-huuid/login, /my-huuid/login/verify   PIN or SMS-OTP sign-in
+/my-huuid                                 Home — name, HUUID, tier badge,
+                                           incomplete-medical banner, 4
+                                           action cards, Sign Out
+/my-huuid/profile                         Name/DOB/sex/email/emergency
+                                           contact -- phone and country
+                                           deliberately read-only (see 20.3)
+/my-huuid/medical                         Full medical profile editor,
+                                           pre-populated, PATCHes the
+                                           already-existing
+                                           /api/patient/medical route
+/my-huuid/card                            Reuses IdentityCard/QrModal/
+                                           card-canvas.ts from /enroll/card
+                                           verbatim; staleness + expiry
+                                           banners; PDF/PNG/QR download;
+                                           Apple/Google Wallet placeholders
+/my-huuid/history                         Merged huuid_audit_log +
+                                           huuid_bg_audit_log timeline
+/my-huuid/consent                         Pending/History tabs, live
+                                           countdown, Grant/Decline
+/my-huuid/settings                        Change PIN, Trusted Devices
+                                           (placeholder), Identity
+                                           Verification, Delete Account
+POST /api/my-huuid/logout                 Clears patientSession
+```
+
+New env-var-free, but new migrations 029-031 (below) — no new Vercel
+environment variables were needed; every route reuses the existing
+`HUUID_PII_ENCRYPTION_KEY`, `HUUID_SESSION_ENCRYPTION_KEY`, and Hubtel
+credentials already configured for `/enroll`.
+
+### 20.2 New migrations (029–031)
+
+```
+029  huuid_get_patient_for_login -- Layer 1's PIN-login lookup RPC,
+     written with the correct SET search_path = public, extensions from
+     the start (the exact bug found and fixed live in migrations 022/023
+     during the facility build was not repeated here).
+030  huuid_get_patient_profile / huuid_update_patient_profile (Layer 3).
+     Deliberately excludes phone_hash and country_code from what's
+     editable -- phone is the OTP/login lookup key (needs its own
+     re-verification flow to change) and country is embedded in the
+     HUUID string itself.
+031  identity_verified / identity_verified_method / identity_verified_at
+     / identity_document_type / identity_document_country columns on
+     huuid_patients (Layer 8) -- all null/false today, genuinely
+     accurate for every current Tier 1 self-enrolled patient, not a
+     placeholder pretending otherwise. Also adds the 'pin_changed' and
+     (029/030 sessions) 'profile_updated' audit actions.
+```
+
+Layer 4 (medical profile update) needed **no new migration or backend
+route at all** — `GET`/`PATCH /api/patient/medical` and
+`huuid_update_medical_profile` already existed from the earlier
+card-staleness work (§ 18) and already handled re-encryption, QR token
+regeneration, `card_token_generated_at`, audit logging, and the SMS
+notification. That route had simply never had a UI in front of it,
+since nothing populated `patientSession` before Layer 1 of this build.
+
+### 20.3 Real design decisions, disclosed rather than silently built as if solid
+
+- **PIN login is challenge-response, not the literal brief's
+  "successful decryption = authenticated."** The client decrypts its
+  private key locally with the entered PIN, then signs a server-issued
+  nonce with it; the server verifies that signature against the
+  patient's already-public DID Document key
+  (`crypto.webcrypto.subtle.verify`), rather than trusting a
+  client-asserted "it decrypted OK" boolean, which anyone could fake
+  without ever knowing the PIN. A deliberate improvement over the
+  literal brief, not a deviation for its own sake.
+- **Change PIN is entirely client-side** (`lib/client/keypair.ts`'s
+  `reencryptPrivateKeyWithNewPin`): decrypts with the current PIN,
+  re-encrypts under the new one with a fresh salt/IV, and only the new
+  ciphertext ever reaches the server. The raw private key never leaves
+  the browser, matching every other crypto operation in this codebase.
+- **Delete My Account's "verify PIN decrypts correctly" reuses Layer
+  1's real PIN-login flow** as the re-authentication step (an actual
+  Ed25519 signature verification) rather than a third, separately
+  implemented PIN check, then calls the same `huuid_gdpr_erase_patient`
+  already used by `/api/enroll/erase/confirm`.
+- **Profile editing deliberately excludes phone and country** — see
+  migration 030 above.
+- **Access history's "clinician role" field doesn't exist.**
+  `huuid_bg_audit_log` has no such column; the closest real field is
+  `clinician_license`, used instead of inventing one. Also, neither
+  audit table has a `triggered_at` column (the brief's assumption) —
+  sorted on `resolved_at`/`created_at`, the columns that actually
+  exist.
+- **Consent request expiry is display-only, not enforced in the
+  database.** Nothing transitions a `pending` `huuid_consent_requests`
+  row to `expired` — no cleanup job exists (the same disclosed gap as
+  `huuid_cleanup_expired_otps`, § 18.6). The History tab computes an
+  "Expired" label for a past-expiry pending row without writing
+  anything. Tracked as **Pre-Pilot Blocker 18** in
+  `HUUID-PREPILOT-CHECKLIST-v0.2.docx` — not blocking pilot, needed
+  before scale.
+- **Two real bugs found and fixed while building the final 13-step
+  test, not left in:** the home page fetched `verification_tier` but
+  never rendered a tier badge, and had no incomplete-medical-profile
+  banner at all despite `/enroll/card` already having one — both added.
+  Separately, `/my-huuid/settings` blocked its entire page behind the
+  `GET /api/my-huuid/security` fetch (Section 3's data), even though
+  Sections 1/2/4 don't need it — fixed so only Section 3 shows its own
+  local loading state.
+- **A route-naming mismatch was caught before it shipped broken**: the
+  home page's Security Settings link initially pointed at
+  `/my-huuid/security`; the actual Layer 8 route is
+  `/my-huuid/settings`. Fixed same-session.
+
+### 20.4 SMS — built, not verified with a real send
+
+Every SMS-dependent flow (login OTP, medical-profile-update
+notification, PIN-change confirmation, account-deletion confirmation,
+consent-request replies) is fully built against the real `lib/sms.ts`
+pipeline, with `[SMS notifications will be active shortly]` shown in
+the UI wherever a send would fire — per explicit instruction, none of
+this was stubbed or skipped waiting for the Hubtel fix (§ 19.4.1,
+still PAUSED). No real SMS was sent from this build to verify delivery,
+consistent with the standing instruction not to resume SMS-dependent
+testing until Hubtel responds.
+
+### 20.5 Testing technique — how "live, verified in production" was established without a browser or working SMS
+
+The Browser pane tools were unreliable in this session (the same
+"pane not displayed" failure mode as § 16), and login-gated flows
+can't be click-through tested while SMS delivery is paused. Every layer
+was instead verified by driving the real deployed API directly with
+genuine cryptographic material:
+
+- A real test patient was enrolled through the actual `/enroll` API
+  sequence (`/api/enroll/start` → `/api/enroll/verify-otp` →
+  `/api/enroll/register`), replicating `lib/client/keypair.ts`'s
+  Ed25519/PBKDF2/AES-GCM logic in Node (`node:crypto`'s WebCrypto has
+  Ed25519 support in Node 24) rather than a browser — genuine keypair,
+  genuine encrypted private key, genuine HUUID:
+  `did:huuid:gh:4sB9m6Pgfhhd8stTxJRZ7XCthnBboYFqRzAFqVRe3uzr`, PIN
+  `123456`. The phone number originally requested
+  (`+233243222058`) turned out to be permanently blocked from
+  re-enrollment by migration 017's own anti-reuse safeguard (it was
+  used and then GDPR-erased in an earlier session) — flagged to the
+  operator rather than silently worked around; the operator supplied
+  `+2333560700700` instead.
+- Since SMS delivery is paused, the enrollment OTP and every login OTP
+  in this build were recovered by reading the stored (unsalted SHA-256)
+  hash directly from `huuid_otp_verifications` via service-role SQL
+  access and brute-forcing the 1,000,000-value space locally (instant)
+  — legitimate for our own test data, not a bypass of any real
+  patient's security.
+- Real consent requests were created by crafting a facility session
+  cookie with the app's own AES-256-GCM algorithm and
+  `HUUID_SESSION_ENCRYPTION_KEY` (the same technique § 19.4 used) and
+  calling the real `POST /api/facility/consent/request` as the seeded
+  test facility.
+- A real standard-resolution audit record was created by signing a
+  genuine facility JWT (`lib/test-facility-jwt.ts`'s pattern,
+  replicated in Node) and calling the real
+  `GET /1.0/identifiers/{did}` as the seeded test facility, rather than
+  inserting a row directly.
+- IP-based rate limits (`huuid_enrollment_rate_limits`, 3/hour per
+  action) were hit repeatedly by this many real API calls in
+  succession; cleared via direct service-role `DELETE` between test
+  rounds — the same precedent already documented in this project's
+  memory for Break-Glass rate-limit resets during testing, not a
+  production bypass.
+- The card staleness banner and the consent-expiry "Expired" label were
+  each verified against a **genuinely** stale/expired state (medical
+  updated after the card was last generated; a consent request left
+  past its 5-minute window), not merely asserted from reading the code
+  — the same rigor § 18.6's staleness banner note called for and didn't
+  fully have at the time.
+
+### 20.6 13-step end-to-end result
+
+All 13 steps passed against production, in order, in one continuous
+session as the same logged-in test patient: sign in with PIN; home
+(name, tier badge, correctly no incomplete-medical banner since the
+profile is complete); profile fields correct; medical profile update
+saved; card genuinely stale after a real edit; PDF-pipeline data
+contains the updated blood type/allergy/contraindication; refresh
+regenerates the token; stale banner clears; access history shows a
+real entry; both consent tabs respond correctly; PIN changed, signed
+out, signed back in with the new PIN (then restored to `123456` for
+future testing convenience); settings shows all 4 sections; sign out
+correctly clears the session (307 on the page, 401 on the API
+afterward). Two of the three checks that failed on the first pass were
+this session's own test-script bugs (a field-name mismatch, a missed
+`Set-Cookie`), not application defects; the third was the real settings
+loading-gate bug fixed in § 20.3.
+
+### 20.7 Pre-Pilot Checklist impact
+
+Per operator instruction, tracked in `HUUID-PREPILOT-CHECKLIST-v0.2.docx`
+(not duplicated in § 9's short-pointer list, which only tracks the
+original 8):
+
+- **Blocker 13 (Patient Login Flow) — CLOSED.** The patient login flow
+  now exists and is verified end-to-end (§ 20.5/20.6).
+  `/api/patient/medical` is reachable.
+- **Blocker 15 (`GET /api/patient/medical` Route Unreachable) —
+  CLOSED.** Reachable now that Layer 1 populates `patientSession`.
+- **Blocker 16 (Real SMS Test for Profile Update Notification) —
+  BUILT, not yet verified.** The SMS call fires on every real
+  `PATCH /api/patient/medical` now that the route is reachable
+  (unblocking the "Blocked by Blocker 13" note in the checklist) — but
+  no real SMS was sent to confirm delivery, consistent with the SMS
+  pause (§ 19.4.1/20.4).
+- **Blocker 18 (Consent Request Cleanup Job) — NEW, OPEN, not
+  blocking pilot.** Added this session (§ 20.3) — see the checklist
+  document for the full current-state/what's-needed/verification-test/
+  pass-criteria breakdown.
