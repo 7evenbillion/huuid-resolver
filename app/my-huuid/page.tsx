@@ -16,6 +16,16 @@ interface PatientIdentityRow {
   created_at: string;
 }
 
+interface MedicalCompletionRow {
+  medical_profile_completed: boolean;
+}
+
+const TIER_LABEL: Record<number, string> = {
+  1: 'Tier 1 — Self-Enrolled',
+  2: 'Tier 2 — Facility-Verified',
+  3: 'Tier 3 — Biometric-Verified',
+};
+
 /**
  * /my-huuid — Layer 2 home dashboard. patientSession (lib/patient-session.ts)
  * only carries huuid/phone, not the patient's name, so it's fetched here via
@@ -38,6 +48,11 @@ export default async function MyHuuidHomePage() {
     redirect('/my-huuid/login');
   }
 
+  const { data: medicalData } = await client
+    .rpc('huuid_get_medical_profile', { p_huuid: session.huuid, p_pii_key: getPiiKey() })
+    .maybeSingle();
+  const medicalIncomplete = !(medicalData as MedicalCompletionRow | null)?.medical_profile_completed;
+
   const huuidShort = `${session.huuid.slice(0, 18)}…${session.huuid.slice(-6)}`;
 
   return (
@@ -48,6 +63,9 @@ export default async function MyHuuidHomePage() {
           <div>
             <div className="myhuuid-name">{patient.full_name}</div>
             <div className="myhuuid-id" title={session.huuid}>{huuidShort}</div>
+            <span className="myhuuid-tier-badge">
+              🛡 {TIER_LABEL[patient.verification_tier] ?? `Tier ${patient.verification_tier}`}
+            </span>
           </div>
         </div>
         <SignOutButton />
@@ -55,6 +73,12 @@ export default async function MyHuuidHomePage() {
 
       <div className="myhuuid-main">
         <p className="myhuuid-welcome">Welcome back. What would you like to do?</p>
+
+        {medicalIncomplete && (
+          <div className="myhuuid-incomplete-banner">
+            ⚠️ Your emergency medical profile is incomplete. <Link href="/my-huuid/medical">Add it now →</Link>
+          </div>
+        )}
 
         <div className="myhuuid-card-grid">
           <Link href="/my-huuid/profile" className="myhuuid-card">
