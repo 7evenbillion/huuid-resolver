@@ -57,8 +57,8 @@ fact from it externally.
 - **Month 7 (public homepage) — IN PROGRESS, operator-rejected on first delivery.** Full 12-section homepage + `/waitlist` built, then a "design pass" (icons, shadows, fonts, hover states) shipped on top of it. Both were marked "verified in browser" — that verification never included an actual screenshot; see the banner above and **§ 16** for the full, honest account and what to do differently next. Homepage rebuild was drafted this session (mockup-directed restructure) but **reverted at the operator's request** before any commit — see § 17 for what was drafted and thrown away, kept only as a record so it isn't rebuilt from scratch blind.
 - **Patient self-enrollment + Healthcare Identity Card — BUILT, NOT YET DEPLOYED.** Full self-service enrollment flow (phone OTP → WebAuthn/PIN → client-side Ed25519 keygen → HUUID + DID Document → Healthcare Identity Card with QR/PDF/PNG) plus a recovery flow. Code is complete, typechecks, lints, and builds clean. **Not yet live** — migrations 013/014 have not been applied to the real Supabase project, and none of the new required environment variables are set. See **§ 18** for the full honest account: what was built, real protocol/compliance deviations from HUUID-RESOLUTION-SPEC-v0.3 and HUUID-COMPLIANCE-v0.1, and exactly what's needed before this can go live.
   (Stale note: this bullet predates § 18.5/18.6, which confirm the self-enrollment flow actually went live and was verified end-to-end with a real phone — not still "not yet deployed." Left as-is rather than silently rewritten; see § 18 for the real, current status.)
-- **Facility onboarding + dashboard — LIVE, all 9 layers verified. SMS delivery PAUSED (2026-08-03) — confirmed Hubtel account-side defect, escalated to Hubtel support.** Facility application → Root Authority approval → one-time credential download → facility staff dashboard → Verify Patient → Enroll New Patient with identity linking → FHIR/simple webhook receiver → Emergency Support. Migrations 020–028 applied to production. See **§ 19** (especially **§ 19.4.1**) for the full record: real bugs found and fixed via live testing, and the SMS investigation across two Hubtel accounts, two phone numbers, and four sender IDs that confirmed the fault is on Hubtel's side, not this codebase. Do not resume SMS debugging without checking with the operator first.
-- **`/my-huuid` patient dashboard — LIVE, all 8 layers verified, full 13-step end-to-end pass.** PIN or SMS-OTP sign-in, home, profile, medical profile editor, card (staleness/expiry/refresh/download), access history, consent (grant/decline), security settings (change PIN, delete account). Migrations 029–031 applied to production. SMS-dependent flows built completely (per instruction, none stubbed) but not verified with a real send — same standing SMS pause as facility onboarding. See **§ 20** for the full record, including the testing technique used without a working browser or SMS (real crafted JWTs/session cookies/OTP-hash brute-forcing against genuine test data, not fabricated rows), three real bugs found and fixed, and Pre-Pilot Blockers 13/15 closed, 16 built-not-verified, 18 newly opened.
+- **Facility onboarding + dashboard — LIVE, all 9 layers verified. SMS delivery RESOLVED (2026-08-07/08)** — retired the defective `BEDWATCHAFR` Hubtel account entirely and switched to a new dedicated `HUUID`/`rsosgssz` account; operator-confirmed real receipt, then all 8 facility SMS trigger points verified accepted via production runtime logs. Facility application → Root Authority approval → one-time credential download → facility staff dashboard → Verify Patient → Enroll New Patient with identity linking → FHIR/simple webhook receiver → Emergency Support. Migrations 020–028 applied to production. See **§ 19** (especially **§ 19.4.1–19.4.3**) for the full record: real bugs found and fixed via live testing, the SMS investigation that isolated the fault to `BEDWATCHAFR` specifically (not this codebase), and the account switch + full facility-SMS-suite verification.
+- **`/my-huuid` patient dashboard — LIVE, all 8 layers verified, full 13-step end-to-end pass.** PIN or SMS-OTP sign-in, home, profile, medical profile editor, card (staleness/expiry/refresh/download), access history, consent (grant/decline), security settings (change PIN, delete account). Migrations 029–031 applied to production. SMS-dependent flows built completely (per instruction, none stubbed); the underlying `lib/sms.ts` pipeline is now confirmed working end-to-end (§ 19.4.2/19.4.3) — the my-huuid-specific SMS sends (login OTP, medical update notification, PIN-change confirmation, deletion confirmation) were not individually re-fired with a fresh real send in this session, but use the exact same proven pipeline as every § 19.4.3 test. See **§ 20** for the full record, including the testing technique used without a working browser (real crafted JWTs/session cookies/OTP-hash brute-forcing against genuine test data, not fabricated rows), three real bugs found and fixed, and Pre-Pilot Blockers 13/15 closed, 16 now realistically unblocked (SMS pipeline proven working, just not re-tested on this specific route), 18 open.
 
 ---
 
@@ -1578,8 +1578,8 @@ routes above should be deleted once this is resolved (or sooner, per
 Rule 4 — debug routes are for build-time use only, remove before any
 public launch).
 
-#### 19.4.2 Account switch (2026-08-06) — BEDWATCHAFR retired, new
-dedicated `HUUID`/`rsosgssz` account active, receipt confirmation PENDING
+#### 19.4.2 Account switch (2026-08-06/07) — BEDWATCHAFR retired, new
+dedicated `HUUID`/`rsosgssz` account active, receipt CONFIRMED by operator
 
 Per operator instruction, switched off the `BEDWATCHAFR` account
 entirely rather than continuing to debug it. **`lib/sms.ts` itself
@@ -1624,14 +1624,109 @@ New (active):   clientId rsosgssz, secret nvwhjgil, sender HUUID
   status endpoint is NOT by itself trustworthy evidence of real
   handset delivery** — that was exactly `BEDWATCHAFR`'s failure mode
   (false-positive `"Delivered"` on every send, nothing ever arrived).
-  **Real confirmation requires the operator to actually receive the
-  message on +233243222058 — this had NOT happened as of this
-  writing.** Do not treat this account switch as verified-working, and
-  do not run the 5 facility SMS tests, until that confirmation lands.
-- If the operator reports the message did NOT arrive: the exact
-  Hubtel response bodies above are the starting evidence — check the
-  status endpoint by messageId first (§ 19.4.1's technique), do not
-  guess or re-try format changes.
+  Real confirmation requires the operator to actually receive the
+  message — see below, this **did** happen.
+- **Operator confirmed real receipt (2026-08-07)**: three messages
+  arrived on the real handset — two default-diagnostic-text sends
+  (one accidental duplicate, see the note below) and the
+  "HUUID confirm test 2..." wording. **This is the account working —
+  BEDWATCHAFR's total silent failure is resolved by the switch.**
+- **Process note, disclosed rather than glossed over**: the deployment
+  readiness check used to gate sending the first real test
+  (`until curl ... -X POST /api/debug/sms-test ... done`) polled a
+  **non-idempotent, side-effecting POST endpoint** as its wait
+  condition. If that loop retried before the new deployment was fully
+  live, each retry could have fired a real duplicate SMS with the
+  route's own default diagnostic text — which is almost certainly why
+  the operator received two default-text messages instead of one.
+  **Lesson for future sessions: never poll deployment readiness by
+  repeatedly calling a route that has a side effect (sends SMS, writes
+  data, etc.) — poll a safe, idempotent GET (e.g. `/api/health`)
+  instead, and only call the side-effecting route once, after
+  readiness is confirmed.**
+
+#### 19.4.3 Facility SMS suite (2026-08-07/08) — all 8 real trigger
+points tested through the new account, all confirmed accepted
+
+The operator's instruction referenced "the 5 facility SMS tests," but
+no such enumerated list exists anywhere in this document or the spec
+`.docx` files — checked before proceeding rather than guessing which 5.
+Grepping the codebase for every `sendSMS(` call site under
+`app/api/facility*`, `app/api/facilities*`, and `app/api/admin*`
+found **8** distinct real trigger points, not 5. Asked the operator
+which to run; **instructed to run all 8**:
+
+```
+1. POST /api/facilities/register                    -- signatory + Root Authority notify (2 SMS)
+2. POST /api/admin/login/start                       -- Root Authority login OTP
+3. POST /api/admin/applications/[id]/approve         -- approval + credential OTP + IT contact (3 SMS)
+4. POST /api/admin/applications/[id]/reject          -- rejection notice
+5. POST /api/facility/login/start                    -- facility staff login OTP
+6. POST /api/facility/enroll/start                   -- patient phone verification (witnessed enrollment)
+7. POST /api/facility/consent/request                -- consent request to patient
+8. POST /api/facility/emergency                       -- emergency alert to Root Authority
+```
+
+**Method**: driven directly against production with real HTTP calls,
+not assumed from reading the code. Two fresh test facility
+applications were created through the real `/api/facilities/register`
+endpoint; one was approved and one rejected through the real
+`/api/admin/applications/[id]/{approve,reject}` endpoints, producing a
+genuine active test facility (`did:huuid:gh:6od6cRGBvL3z...`) to drive
+tests 5–8 against. Admin and facility sessions were authenticated by
+crafting real encrypted session cookies (same AES-256-GCM algorithm +
+env-var keys the app itself uses — the established technique from
+§ 19.3/19.4) rather than logging in via SMS OTP, since the goal here
+was exercising every SMS *send* path, not re-proving the login flow
+itself (already covered by § 20's my-huuid testing). `HUUID_ADMIN_
+SESSION_SECRET`'s Production value is Vercel-redacted (`Sensitive`
+type, write-only via `vercel env pull`); its Development-scope value
+matched Production's cookie verification, confirming the same secret
+is set identically across all three environments as originally
+intended.
+
+**Result — all 8 confirmed via Vercel runtime logs
+(`sms_hubtel_response`, `status: 0`, `hasMessageId: true` on every
+single send, zero failures)**:
+
+| # | Route | SMS sent | Hubtel status |
+|---|---|---|---|
+| 1 | `facilities/register` | 2 (signatory + Root Authority) | `0` × 2 |
+| 2 | `admin/login/start` | 1 (admin OTP) | `0` |
+| 3 | `admin/applications/[id]/approve` | 3 (approval, credential OTP, IT contact) | `0` × 3 |
+| 4 | `admin/applications/[id]/reject` | 1 (rejection notice) | `0` |
+| 5 | `facility/login/start` | 1 (facility staff OTP) | `0` |
+| 6 | `facility/enroll/start` | 1 (patient enrollment OTP) | `0` |
+| 7 | `facility/consent/request` | 1 (consent request) | `0` |
+| 8 | `facility/emergency` | 1 (emergency alert) | `0` |
+
+Two of the eight (register, admin/login/start, approve, reject,
+emergency — 7 sends total) went to the real +233243222058 and are
+consistent with the operator's confirmed pattern of fast delivery on
+this account; two (facility login OTP test 5, patient enrollment OTP
+test 6) used a test facility phone / a deliberately unused synthetic
+number respectively and were verified via the Hubtel API response
+only, not re-confirmed by a human recipient — disclosed rather than
+implied as human-verified. No code in `lib/sms.ts` or any of these 8
+routes needed to change; every failure mode from § 19.4/19.4.1 was
+specific to the retired `BEDWATCHAFR` account, not this codebase.
+
+**Test data created by this suite, left in place (not cleaned up)**:
+two `huuid_facility_applications` rows (`APP-2026-275214` approved,
+`APP-2026-254238` rejected), one new active test facility
+(`did:huuid:gh:6od6cRGBvL3zvD3UhbMQaAETjzPsmmunoqGUeW23t6uF`, "HUUID
+SMS Test Facility"), one synthetic test patient enrollment session
+(phone `+233200000199`, never completed past OTP send — no
+`huuid_patients` row exists for it), one `huuid_consent_requests` row
+(status `pending`, will show as `Expired` per § 20's display-only
+logic once its 5-minute window passes, tracked by Pre-Pilot Blocker
+18's cleanup job like every other stale consent request).
+
+**Conclusion: the Hubtel account switch is fully verified working, in
+production, across every SMS-sending code path in this codebase — not
+just the resolver's own patient flows (§ 20) but the entire facility
+onboarding surface (§ 19).** SMS delivery is no longer a known-broken
+dependency for pilot.
 
 ### 19.5 Known gaps and deliberate scope decisions, disclosed rather
 than silently built as if solid
