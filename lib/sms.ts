@@ -74,6 +74,10 @@ async function sendViaHubtel(phone: string, message: string): Promise<{ messageI
       rate: data.rate,
       networkId: data.networkId,
       hasMessageId: Boolean(data.messageId),
+      // messageId itself (not just its presence) -- needed to look up real
+      // delivery status via GET https://smsc.hubtel.com/v1/messages/{id}
+      // after the fact. Not PII/secret, just Hubtel's own tracking id.
+      messageId: data.messageId ?? null,
     })
   );
 
