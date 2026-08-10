@@ -1728,6 +1728,119 @@ just the resolver's own patient flows (§ 20) but the entire facility
 onboarding surface (§ 19).** SMS delivery is no longer a known-broken
 dependency for pilot.
 
+**This conclusion is contradicted by § 19.4.4 below (2026-08-10) — left
+here rather than silently rewritten, per this document's own convention
+(see the stale-note pattern near the top of this file). Treat § 19.4.4
+as the current status, not this paragraph.**
+
+#### 19.4.4 Burst-throttling fix built and deployed (2026-08-09/10) — but
+a fresh, isolated non-delivery on the SAME account reopens § 19.4.3's
+"fully verified working" conclusion
+
+**What was built this session** (migrations 032–035, `lib/sms.ts`, new
+`app/api/sms-dispatch` route, `vercel.json` Vercel Cron entry): the
+working hypothesis at the start of this session was that messages sent
+in rapid succession to the same recipient were being silently dropped
+(burst/rate throttling) — supported by two real signals: (1) two
+human-paced OTP sends (enrollment, login, minutes apart) arrived
+successfully on 2026-08-09 while four machine-speed follow-up sends in
+the same session did not, and (2) this project already had one prior,
+independent workaround for the same suspected failure mode (a 4-second
+`sleep()` between two back-to-back sends in the facility-approval
+flow). Built: `sendSMS(phone, message, priority)` — `'critical'` (OTP
+only) sends immediately, unchanged; `'normal'` (every other
+notification, all 20 call sites audited and tagged) is queued
+(`huuid_sms_queue`) with a minimum 30s gap from any prior logged send to
+that recipient, dispatched by `/api/sms-dispatch` every minute via
+Vercel Cron (`vercel.json`), enforcing a further 5s floor and a real
+5-second wait between sends within a dispatch run. An OTP-undelivered
+audit was also added: a critical OTP unused 10 minutes after a
+confirmed Hubtel send gets flagged in `huuid_audit_enrollment`
+(`action: 'otp_possibly_undelivered'`) for visibility, no automatic
+retry. All four migrations applied, security-advisor clean (0 findings
+across every new table/function). Typecheck/lint/build clean. Deployed
+to production (`dpl_8KbpuKQdq7xdK99EHm9LX6qWHN2t`, READY, commit
+`ea51d4e`). Dispatcher auth verified directly: 401 with no secret, 401
+with wrong secret, 200 with the correct `CRON_SECRET` (as
+`X-Dispatch-Secret`). Vercel Cron confirmed available on the current
+plan (the deployment itself is the proof — an unsupported per-minute
+schedule would have failed at deploy time; it didn't).
+
+**Live verification against a real recipient immediately surfaced a
+different, unresolved problem.** Two attempts to begin the planned
+TEST 1–3 live verification (queued behind the operator's explicit
+"wait for confirmation before proceeding" gating used throughout this
+project):
+
+1. `+233560700700` (operator recalled as an existing enrolled test
+   patient) — confirmed via direct query against `huuid_patients` that
+   **no row matches this phone's hash**; zero SMS was ever attempted
+   (the my-huuid login route's anti-enumeration design returns a
+   generic `{"ok":true}` and exits before creating an OTP or calling
+   Hubtel when the phone isn't found). Not a delivery bug — this
+   number is not currently enrolled in this database. Two other
+   numbers the operator separately recalled as working test numbers
+   were also checked directly: `+233243222058` IS in `huuid_patients`
+   but with `status: 'revoked'` (the same number from the original
+   Layer 1–9 build, GDPR-erased during § 17/18's own testing months
+   ago — retains its `phone_hash` per migration 017's design, but
+   `revoked` status means the login route won't send it anything
+   either). `+233560700700` remains a genuine zero-row miss even after
+   this cross-check.
+
+2. `+233507006600` (the number enrolled fresh earlier in this same
+   session, confirmed `status: 'active'`) — `POST
+   /api/my-huuid/login/otp/start` correctly found the patient
+   (`phoneLast4: "6600"`), created a critical-priority OTP, and called
+   Hubtel. Runtime logs confirm a real send: `sms_hubtel_response`,
+   `status: 0`, `messageId: "a117249c-b2f5-4a24-8080-f429864afa28"`,
+   `rate: 0.03`. This was a **single, isolated** send — no other
+   message went to this recipient anywhere near it in time, so
+   burst/rate throttling (this session's diagnosis and fix target)
+   cannot explain what happened next. Polling Hubtel's own status
+   endpoint (`GET /v1/messages/{id}`) showed `status: "Sent"`
+   immediately, then `status: "Delivered"` about a minute later — a
+   clean, fully-successful-looking delivery record. **The operator
+   confirmed nothing arrived on the handset.**
+
+**This is the exact same false-positive pattern documented for the
+retired `BEDWATCHAFR` account in § 19.4.1** (`"Delivered"` reported,
+nothing received) — previously believed resolved by the account switch
+to `HUUID`/`rsosgssz`, confirmed by three real received messages on
+2026-08-07 (§ 19.4.2) and the full 8-route facility suite on
+2026-08-07/08 (§ 19.4.3 above). Today's result says that resolution did
+not hold, or holds inconsistently. **No root cause is diagnosed for
+this specific failure — this section is evidence, not a fix, per this
+project's own no-fix-without-evidence standard (CLAUDE.md § 01).**
+
+**Evidence block, ready to hand to Hubtel support:**
+```
+Account: HUUID (client ID rsosgssz)
+messageId: a117249c-b2f5-4a24-8080-f429864afa28
+To: +233507006600
+From: HUUID
+Sent: 2026-08-10T16:53:02Z (status: Sent)
+Reported delivered: 2026-08-10T16:54:07Z (status: Delivered)
+Actual outcome: message never received on the handset (confirmed
+  directly by the phone's owner within minutes of the reported
+  delivery time)
+Content: "Your HUUID verification code is: 862028\nValid for 10
+  minutes.\nDo not share this code with anyone.\nHUUID Healthcare
+  Identity"
+```
+
+**Operator decision (2026-08-10): stop further code changes on this,
+escalate to Hubtel support directly with the evidence above.** The
+burst-throttling fix (queue, priority routing, dispatcher) stays
+deployed as-is — it is real, tested-clean infrastructure work and does
+not need to be reverted — but it does not solve pilot-readiness on its
+own. TEST 1–3 from the original burst-throttling verification plan
+were not run; blocked on the account-level delivery problem above, not
+on anything in this session's code. **Pre-Pilot Blocker 16 (patient SMS
+flows) is NOT closed. Treat SMS delivery on this Hubtel account as
+unconfirmed/unreliable until Hubtel support responds or a real message
+is received end-to-end again.**
+
 ### 19.5 Known gaps and deliberate scope decisions, disclosed rather
 than silently built as if solid
 
