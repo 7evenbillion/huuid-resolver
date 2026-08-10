@@ -63,7 +63,10 @@ export async function POST(req: NextRequest) {
   const message = `🚨 HUUID EMERGENCY\nFacility: ${session.facilityName}\nDid: ${session.facilityDid}\nTime: ${timestamp}\nIssue: ${parsed.data.issue}\nContact: ${facility?.login_phone ?? 'unknown'}`;
 
   try {
-    await sendSMS(rootAuthorityPhone, message);
+    // 'normal' per operator's explicit categorization -- counterintuitive
+    // for an emergency-labeled message, but this is a low-volume,
+    // non-time-critical operator alert, not a patient-safety OTP.
+    await sendSMS(rootAuthorityPhone, message, 'normal');
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
     console.error(JSON.stringify({ level: 'error', action: 'facility_emergency_sms_failed', message: reason }));

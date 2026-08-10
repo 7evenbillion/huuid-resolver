@@ -80,7 +80,8 @@ export async function POST(req: NextRequest) {
   try {
     await sendSMS(
       phone,
-      `HUUID CONSENT REQUEST\n\n${session.facilityName} wants to access your health records at:\n- ${holdingFacilityNames.join('\n- ')}\n\nThey need:\n- ${recordTypesRequested.join('\n- ')}\n\nReply YES to consent or NO to decline.\nExpires in ${CONSENT_EXPIRY_MINUTES} minutes.\nRef: ${consentId}\nHUUID`
+      `HUUID CONSENT REQUEST\n\n${session.facilityName} wants to access your health records at:\n- ${holdingFacilityNames.join('\n- ')}\n\nThey need:\n- ${recordTypesRequested.join('\n- ')}\n\nReply YES to consent or NO to decline.\nExpires in ${CONSENT_EXPIRY_MINUTES} minutes.\nRef: ${consentId}\nHUUID`,
+      'normal'
     );
     await client
       .from('huuid_consent_requests')

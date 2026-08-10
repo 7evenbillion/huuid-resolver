@@ -126,7 +126,8 @@ export async function POST(req: NextRequest) {
   try {
     await sendSMS(
       session.phone,
-      `Your HUUID Healthcare Identity has been created successfully.\nYour HUUID: ${input.huuid}\nKeep this safe. This is your unique healthcare identity.\nHUUID`
+      `Your HUUID Healthcare Identity has been created successfully.\nYour HUUID: ${input.huuid}\nKeep this safe. This is your unique healthcare identity.\nHUUID`,
+      'normal'
     );
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';

@@ -13,7 +13,8 @@ export type EnrollmentAuditAction =
   | 'erasure_completed'
   | 'medical_profile_updated'
   | 'profile_updated'
-  | 'pin_changed';
+  | 'pin_changed'
+  | 'otp_possibly_undelivered';
 
 interface AuditInput {
   huuid: string | null;
@@ -21,6 +22,7 @@ interface AuditInput {
   ipHash: string;
   userAgentHash: string;
   outcome: string;
+  details?: Record<string, unknown>;
 }
 
 /** Writes one immutable enrollment audit record (huuid_audit_enrollment). Never throws — logs and swallows on failure, matching this project's existing audit-write style for non-resolution paths. */
@@ -33,6 +35,7 @@ export async function writeEnrollmentAudit(input: AuditInput): Promise<void> {
     ip_hash: input.ipHash,
     user_agent_hash: input.userAgentHash,
     outcome: input.outcome,
+    details: input.details ?? null,
   });
   if (error) {
     console.error(

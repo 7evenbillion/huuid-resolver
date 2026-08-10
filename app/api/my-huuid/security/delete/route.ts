@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
   await patientSession.clear();
 
   try {
-    await sendSMS(phone, 'Your HUUID Healthcare Identity has been permanently deleted, as you requested. HUUID');
+    await sendSMS(phone, 'Your HUUID Healthcare Identity has been permanently deleted, as you requested. HUUID', 'normal');
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
     console.error(JSON.stringify({ level: 'warn', action: 'my_huuid_delete_account_sms_failed', message: reason }));

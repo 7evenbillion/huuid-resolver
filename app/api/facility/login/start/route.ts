@@ -53,7 +53,8 @@ export async function POST(req: NextRequest) {
   try {
     await sendSMS(
       facility.login_phone,
-      `Your HUUID facility login code is: ${otp}\nValid for ${OTP_EXPIRY_MINUTES} minutes.\nDo not share this code with anyone.\nHUUID`
+      `Your HUUID facility login code is: ${otp}\nValid for ${OTP_EXPIRY_MINUTES} minutes.\nDo not share this code with anyone.\nHUUID`,
+      'critical'
     );
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';

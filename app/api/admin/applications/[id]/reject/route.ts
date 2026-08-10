@@ -53,7 +53,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     await sendSMS(
       app.authorised_signatory_phone,
-      `Your HUUID application for ${app.facility_name} was not approved.\nReason: ${parsed.data.reason}\nTo reapply or appeal contact:\n${rootAuthorityPhone ?? 'the HUUID Root Authority'}\nHUUID`
+      `Your HUUID application for ${app.facility_name} was not approved.\nReason: ${parsed.data.reason}\nTo reapply or appeal contact:\n${rootAuthorityPhone ?? 'the HUUID Root Authority'}\nHUUID`,
+      'normal'
     );
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';

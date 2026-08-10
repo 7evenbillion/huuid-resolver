@@ -89,7 +89,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   try {
     await sendSMS(
       app.authorised_signatory_phone,
-      `HUUID FACILITY APPROVED\n\n${app.facility_name} has been approved to connect to the HUUID network.\n\nYour Facility ID:\n${facilityDid}\n\nDownload your credentials here:\n${downloadUrl}\n\nThis link expires in 24 hours and can only be used once. You will need a verification code -- we will send it separately.\n\nHUUID Root Authority`
+      `HUUID FACILITY APPROVED\n\n${app.facility_name} has been approved to connect to the HUUID network.\n\nYour Facility ID:\n${facilityDid}\n\nDownload your credentials here:\n${downloadUrl}\n\nThis link expires in 24 hours and can only be used once. You will need a verification code -- we will send it separately.\n\nHUUID Root Authority`,
+      'normal'
     );
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
@@ -100,7 +101,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   try {
     await sendSMS(
       app.authorised_signatory_phone,
-      `Your HUUID credential download code: ${otp}. Valid ${OTP_EXPIRY_MINUTES} minutes. Do not share this code. HUUID`
+      `Your HUUID credential download code: ${otp}. Valid ${OTP_EXPIRY_MINUTES} minutes. Do not share this code. HUUID`,
+      'critical'
     );
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
@@ -111,7 +113,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   try {
     await sendSMS(
       app.it_contact_phone,
-      `HUUID Installation Ready\n\n${app.facility_name} has been approved. Your IT contact ${app.it_contact_name} -- installation instructions will follow your authorised contact's credential download.\nHUUID`
+      `HUUID Installation Ready\n\n${app.facility_name} has been approved. Your IT contact ${app.it_contact_name} -- installation instructions will follow your authorised contact's credential download.\nHUUID`,
+      'normal'
     );
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';

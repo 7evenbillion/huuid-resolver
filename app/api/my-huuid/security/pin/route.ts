@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   await writeEnrollmentAudit({ huuid: session.huuid, action: 'pin_changed', ipHash, userAgentHash: uaHash, outcome: 'success' });
 
   try {
-    await sendSMS(session.phone, 'Your HUUID security PIN was just changed. If this was not you, contact identity@huuid.health immediately. HUUID');
+    await sendSMS(session.phone, 'Your HUUID security PIN was just changed. If this was not you, contact identity@huuid.health immediately. HUUID', 'normal');
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
     console.error(JSON.stringify({ level: 'warn', action: 'my_huuid_pin_change_sms_failed', message: reason }));

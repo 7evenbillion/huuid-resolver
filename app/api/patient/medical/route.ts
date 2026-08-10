@@ -170,7 +170,8 @@ export async function PATCH(req: NextRequest) {
   try {
     await sendSMS(
       session.phone,
-      `Your HUUID medical profile has been updated. Download your new Healthcare Identity Card at ${APP_URL}/enroll/card to ensure clinicians have your latest information. HUUID`
+      `Your HUUID medical profile has been updated. Download your new Healthcare Identity Card at ${APP_URL}/enroll/card to ensure clinicians have your latest information. HUUID`,
+      'normal'
     );
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';

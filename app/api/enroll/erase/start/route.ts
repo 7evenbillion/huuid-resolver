@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
 
   const otp = generateOtp();
   const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000).toISOString();
-  const { error: otpError } = await getServiceClient().rpc('huuid_otp_create', {
+  const { data: otpIdRows, error: otpError } = await getServiceClient().rpc('huuid_otp_create', {
     p_phone: phone,
     p_otp_hash: hashOtp(otp),
     p_otp_type: 'erasure',
@@ -59,9 +59,13 @@ export async function POST(req: NextRequest) {
     console.error(JSON.stringify({ level: 'error', action: 'erasure_otp_create_failed', message: otpError.message }));
     return NextResponse.json({ error: 'Could not process your request. Please try again.' }, { status: 500 });
   }
+  const otpId = Array.isArray(otpIdRows) ? otpIdRows[0] : otpIdRows;
 
   try {
-    await sendSMS(phone, otpMessage(otp));
+    const smsResult = await sendSMS(phone, otpMessage(otp), 'critical');
+    if (!smsResult.queued && otpId) {
+      await getServiceClient().rpc('huuid_otp_set_message_id', { p_id: otpId, p_hubtel_message_id: smsResult.messageId });
+    }
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
     console.error(JSON.stringify({ level: 'error', action: 'erasure_sms_failed', message: reason }));

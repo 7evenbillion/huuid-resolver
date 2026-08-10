@@ -83,7 +83,8 @@ export async function POST(req: NextRequest) {
   try {
     await sendSMS(
       input.authorisedSignatoryPhone,
-      `Your HUUID facility connection application has been received.\nApplication ID: ${applicationId}\nWe will review your application within 2 business days and contact you at this number.\nHUUID`
+      `Your HUUID facility connection application has been received.\nApplication ID: ${applicationId}\nWe will review your application within 2 business days and contact you at this number.\nHUUID`,
+      'normal'
     );
   } catch (err) {
     const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
@@ -101,7 +102,8 @@ export async function POST(req: NextRequest) {
     try {
       await sendSMS(
         rootAuthorityPhone,
-        `NEW FACILITY APPLICATION\n${input.facilityName}\n${FACILITY_TYPE_SMS_LABELS[input.facilityType]} - ${input.countryCode}\nRef: ${applicationId}\nReview it in the HUUID admin dashboard.\nHUUID`
+        `NEW FACILITY APPLICATION\n${input.facilityName}\n${FACILITY_TYPE_SMS_LABELS[input.facilityType]} - ${input.countryCode}\nRef: ${applicationId}\nReview it in the HUUID admin dashboard.\nHUUID`,
+        'normal'
       );
     } catch (err) {
       const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
