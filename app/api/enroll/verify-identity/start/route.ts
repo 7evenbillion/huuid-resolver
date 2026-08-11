@@ -104,6 +104,8 @@ export async function POST(req: NextRequest) {
       p_huuid: session.huuid,
       p_job_id: job.jobId,
       p_job_type: 'document_verification',
+      p_document_type: typeof documentType === 'string' ? documentType : null,
+      p_document_country: countryCode,
     });
     if (pendingError) {
       console.error(

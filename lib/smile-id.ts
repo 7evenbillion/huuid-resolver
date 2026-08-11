@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Smile ID (usesmileid.com) — biometric KYC sub-processor for face and
@@ -342,11 +343,11 @@ export interface VerificationWebhookResult {
   message: string;
   reason: string | null;
   product: string;
-  jobId: string | null;
+  /** From partner_params.huuid -- set by this codebase at submission time (initiateDocumentVerification), echoed back unchanged by Smile ID on every webhook for this job. The real, reliable correlation key -- Smile ID's own job_id isn't guaranteed to appear in the webhook body itself, only in the Job-ID header and the original AcceptedResponse. */
+  huuid: string | null;
   extractedFullName: string | null;
   extractedDateOfBirth: string | null;
   documentNumber: string | null;
-  documentType: string | null;
   documentExpiry: string | null;
   duplicateFace: DuplicateFaceResult;
   raw: unknown;
@@ -357,7 +358,7 @@ interface RawVerificationWebhook {
   message?: string;
   reason?: string | null;
   product?: string;
-  partner_params?: { job_id?: string; huuid?: string };
+  partner_params?: { huuid?: string };
   id_fields?: {
     full_name?: string;
     date_of_birth?: string;
@@ -379,13 +380,38 @@ export function parseVerificationWebhook(payload: unknown): VerificationWebhookR
     message: p.message ?? '',
     reason: p.reason ?? null,
     product: p.product ?? 'unknown',
-    jobId: p.partner_params?.job_id ?? null,
+    huuid: p.partner_params?.huuid ?? null,
     extractedFullName: p.id_fields?.full_name ?? null,
     extractedDateOfBirth: p.id_fields?.date_of_birth ?? null,
     documentNumber: p.id_fields?.id_number ?? null,
-    documentType: null,
     documentExpiry: p.id_fields?.expiration_date ?? null,
     duplicateFace: checkForDuplicateFace(p.antifraud?.smile_secure),
     raw: payload,
   };
+}
+
+// ------------------------------------------------------------
+// Webhook signature verification
+//
+// Per docs.usesmileid.com/developer-resources/essentials/verification-
+// webhooks/receive-webhooks (fetched and confirmed 2026-08-11): Smile ID
+// signs each webhook with HMAC-SHA256 over
+// `${Response-Timestamp}${partner_id}sid_request`, keyed with the same
+// SMILE_ID_API_KEY used to generate the original v3 token, base64-encoded,
+// delivered in the Response-Signature header alongside Response-Timestamp.
+// ------------------------------------------------------------
+
+export function verifyWebhookSignature(params: { timestamp: string; signature: string }): boolean {
+  const partnerId = process.env.SMILE_ID_PARTNER_ID;
+  const apiKey = process.env.SMILE_ID_API_KEY;
+  if (!partnerId || !apiKey) return false;
+
+  const expected = createHmac('sha256', apiKey)
+    .update(`${params.timestamp}${partnerId}sid_request`)
+    .digest('base64');
+
+  const expectedBuf = Buffer.from(expected);
+  const actualBuf = Buffer.from(params.signature);
+  if (expectedBuf.length !== actualBuf.length) return false;
+  return timingSafeEqual(expectedBuf, actualBuf);
 }
