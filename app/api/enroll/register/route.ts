@@ -88,6 +88,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Could not complete enrollment. Please try again.' }, { status: 500 });
   }
 
+  // Dedup Layer 2: huuid_enroll_patient doesn't compute this itself (its
+  // signature is depended on by existing callers) -- set it here so this
+  // patient is findable by future enrollments' duplicate checks. Non-fatal:
+  // enrollment has already succeeded above regardless of this write.
+  const { data: dobHashRows, error: dobHashError } = await client.rpc('huuid_hash_dob', {
+    p_dob: session.dateOfBirth,
+    p_pii_key: piiKey,
+  });
+  if (dobHashError) {
+    console.error(JSON.stringify({ level: 'warn', action: 'register_dob_hash_failed', message: dobHashError.message }));
+  } else {
+    const dobHash = Array.isArray(dobHashRows) ? dobHashRows[0] : dobHashRows;
+    const { error: setDobHashError } = await client.rpc('huuid_set_date_of_birth_hash', {
+      p_huuid: input.huuid,
+      p_dob_hash: dobHash,
+    });
+    if (setDobHashError) {
+      console.error(
+        JSON.stringify({ level: 'warn', action: 'register_set_dob_hash_failed', message: setDobHashError.message })
+      );
+    }
+  }
+
   const { error: didDocError } = await client.from('huuid_did_documents').insert({
     huuid: input.huuid,
     did_document: input.did_document,
