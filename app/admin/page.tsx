@@ -14,7 +14,7 @@ export default async function AdminDashboardPage() {
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
 
-  const [pendingRes, facilitiesRes, patientsRes, resolutionsRes, applicationsRes] = await Promise.all([
+  const [pendingRes, facilitiesRes, patientsRes, resolutionsRes, applicationsRes, duplicatesRes] = await Promise.all([
     client.from('huuid_facility_applications').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     client.from('huuid_facilities').select('id', { count: 'exact', head: true }).eq('certificate_status', 'active'),
     client.from('huuid_patients').select('id', { count: 'exact', head: true }),
@@ -28,6 +28,11 @@ export default async function AdminDashboardPage() {
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(50),
+    client
+      .from('huuid_patients')
+      .select('id', { count: 'exact', head: true })
+      .eq('potential_duplicate', true)
+      .eq('duplicate_review_status', 'pending'),
   ]);
 
   const applications = applicationsRes.data ?? [];
@@ -63,6 +68,11 @@ export default async function AdminDashboardPage() {
             <span className="admin-card-value">{resolutionsRes.count ?? 0}</span>
             <span className="admin-card-label">Resolutions Today</span>
           </div>
+          <Link href="/admin/duplicates" className="admin-card" style={{ textDecoration: 'none', color: 'inherit' }}>
+            <span className="admin-card-icon">⚠️</span>
+            <span className="admin-card-value">{duplicatesRes.count ?? 0}</span>
+            <span className="admin-card-label">Potential Duplicates</span>
+          </Link>
         </div>
 
         <h2 className="admin-section-heading">Pending Applications</h2>
