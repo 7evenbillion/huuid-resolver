@@ -117,3 +117,12 @@ export function isNameDobSimilar(candidateName: string, newName: string): boolea
   const distance = levenshteinDistance(normalizeNameForMatching(candidateName), normalizeNameForMatching(newName));
   return distance <= T5_MAX_LEVENSHTEIN_DISTANCE;
 }
+
+/** "did:huuid:gh:AB12...CD34" -- per the duplicate-warning UI copy (build prompt Layer 2 Step D). Never exposes enough of the identifier to be guessable, never exposes the matched patient's name. */
+export function maskHuuid(huuid: string): string {
+  const prefixEnd = huuid.lastIndexOf(':') + 1;
+  const prefix = huuid.slice(0, prefixEnd);
+  const idPart = huuid.slice(prefixEnd);
+  if (idPart.length <= 16) return `${prefix}${idPart}`;
+  return `${prefix}${idPart.slice(0, 8)}...${idPart.slice(-8)}`;
+}

@@ -14,7 +14,13 @@ export type EnrollmentAuditAction =
   | 'medical_profile_updated'
   | 'profile_updated'
   | 'pin_changed'
-  | 'otp_possibly_undelivered';
+  | 'otp_possibly_undelivered'
+  | 'potential_duplicate_flagged'
+  | 'identity_verified_smile_id'
+  | 'identity_verification_failed'
+  | 'tier2_upgrade_completed'
+  | 'tier2_upgrade_staff_verified'
+  | 'duplicate_document_detected';
 
 interface AuditInput {
   huuid: string | null;

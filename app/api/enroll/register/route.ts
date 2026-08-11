@@ -121,6 +121,42 @@ export async function POST(req: NextRequest) {
     if (linkError) {
       console.error(JSON.stringify({ level: 'warn', action: 'register_facility_link_failed', message: linkError.message }));
     }
+
+    // Dedup Layer 2 (T2 input): records which facility issued this HUUID
+    // so a future enrollment's duplicate check can score an "issuing
+    // node match" against it.
+    const { error: facilityDidError } = await client.rpc('huuid_set_enrolling_facility_did', {
+      p_huuid: input.huuid,
+      p_facility_did: session.witnessingFacilityDid,
+    });
+    if (facilityDidError) {
+      console.error(
+        JSON.stringify({ level: 'warn', action: 'register_enrolling_facility_did_failed', message: facilityDidError.message })
+      );
+    }
+  }
+
+  // Dedup Layer 2: /api/enroll/duplicate-check flagged a similar existing
+  // patient before this enrollment reached /enroll/secure. Record it on
+  // the new row now that it actually exists.
+  if (session.duplicateCandidateHuuid) {
+    const { error: flagError } = await client.rpc('huuid_flag_potential_duplicate', {
+      p_huuid: input.huuid,
+      p_duplicate_of_huuid: session.duplicateCandidateHuuid,
+      p_pms_score: session.duplicatePmsScore ?? null,
+    });
+    if (flagError) {
+      console.error(JSON.stringify({ level: 'warn', action: 'register_duplicate_flag_failed', message: flagError.message }));
+    } else {
+      await writeEnrollmentAudit({
+        huuid: input.huuid,
+        action: 'potential_duplicate_flagged',
+        ipHash,
+        userAgentHash: uaHash,
+        outcome: 'pending_review',
+        details: { duplicate_of_huuid: session.duplicateCandidateHuuid, pms_score: session.duplicatePmsScore ?? null },
+      });
+    }
   }
 
   try {

@@ -18,6 +18,14 @@ export interface EnrollmentSessionData extends TimestampedPayload {
    * this facility (huuid_identity_map_registry, link_method
    * 'facility_enrollment') once registration succeeds. */
   witnessingFacilityDid?: string | null;
+  /** Set by /api/enroll/duplicate-check (dedup Layer 2) when a same-DOB,
+   * similar-name active patient is found. Read by /enroll/duplicate-check
+   * (display, via the masked field only) and by /api/enroll/register
+   * (writes the real duplicateCandidateHuuid + score onto the new patient
+   * row once it exists). */
+  duplicateCandidateHuuid?: string | null;
+  duplicateCandidateMaskedHuuid?: string | null;
+  duplicatePmsScore?: number | null;
 }
 
 const SESSION_MAX_AGE_SECONDS = 30 * 60; // 30 minutes — enrollment is a short flow

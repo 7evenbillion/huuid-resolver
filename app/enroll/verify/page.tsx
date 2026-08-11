@@ -64,6 +64,22 @@ export default function VerifyPage() {
         setVerifying(false);
         return;
       }
+
+      // Dedup Layer 2: check for a similar existing identity before the
+      // user does the whole WebAuthn/PIN/keygen flow on /enroll/secure.
+      // A failure here shouldn't block enrollment -- fail open to
+      // /enroll/secure, same as every other best-effort check in this flow.
+      try {
+        const dupRes = await fetch('/api/enroll/duplicate-check', { method: 'POST' });
+        const dupData = await dupRes.json();
+        if (dupRes.ok && dupData.potentialDuplicate) {
+          router.push('/enroll/duplicate-check');
+          return;
+        }
+      } catch {
+        // fall through to /enroll/secure
+      }
+
       router.push('/enroll/secure');
     } catch {
       setError('Could not reach the server. Check your connection and try again.');
