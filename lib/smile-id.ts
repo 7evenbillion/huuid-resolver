@@ -252,6 +252,7 @@ export function checkForDuplicateFace(smileSecure: SmileSecureWebhookField | und
 // ------------------------------------------------------------
 
 export interface FacilityFaceVerificationInput {
+  huuid: string;
   smileIdUserId: string; // the user_id captured at enrollment (stored as smile_id_smile_reference)
   selfieImage: Blob;
   livenessImages: Blob[];
@@ -284,6 +285,7 @@ export async function verifyFaceAtFacility(input: FacilityFaceVerificationInput)
   );
   const callbackUrl = process.env.SMILE_ID_CALLBACK_URL;
   if (callbackUrl) form.append('callback_url', callbackUrl);
+  form.append('partner_params', JSON.stringify({ huuid: input.huuid }));
 
   return submitJob('/v3/authentication', 'smart_selfie_authentication', form, input.smileIdUserId);
 }

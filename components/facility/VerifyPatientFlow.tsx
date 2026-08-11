@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import jsQR from 'jsqr';
 import OfflineFallbackNotice from '@/components/facility/OfflineFallbackNotice';
+import Tier2Upgrade from '@/components/facility/Tier2Upgrade';
 
 interface VerifyResult {
   huuid: string;
@@ -17,6 +18,7 @@ interface VerifyResult {
   organDonor: string | null;
   pregnancyStatus: string | null;
   holdingFacilityNames: string[];
+  verificationTier: number;
 }
 
 interface SearchCandidate {
@@ -43,6 +45,7 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
   const [consentStatus, setConsentStatus] = useState<ConsentStatus>('idle');
   const [consentId, setConsentId] = useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [tier2Dismissed, setTier2Dismissed] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -179,6 +182,7 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
     setSearchDob('');
     setConsentStatus('idle');
     setConsentId(null);
+    setTier2Dismissed(false);
   }
 
   if (result) {
@@ -279,6 +283,14 @@ export default function VerifyPatientFlow({ facilityName }: { facilityName: stri
             <div className="warning-box">
               Request expired. Ask patient to reply to the SMS or request again.
             </div>
+          )}
+
+          {result.verificationTier === 1 && !tier2Dismissed && (
+            <Tier2Upgrade
+              huuid={result.huuid}
+              fullName={result.fullName}
+              onComplete={() => setTier2Dismissed(true)}
+            />
           )}
 
           <Link href="/debug/break-glass" className="btn btn-red btn-block" style={{ marginTop: 12 }}>

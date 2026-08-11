@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceClient } from '@/lib/supabase-server';
+import { getPiiKey } from '@/lib/pii';
 import { verifyWebhookSignature, parseVerificationWebhook } from '@/lib/smile-id';
 import { writeEnrollmentAudit } from '@/lib/enrollment-audit';
 import { sendSMS, SMSDeliveryError } from '@/lib/sms';
@@ -60,9 +61,51 @@ export async function POST(req: NextRequest) {
 
   const { data: pendingRows } = await client.rpc('huuid_get_latest_pending_smile_id_job', { p_huuid: result.huuid });
   const pending = (Array.isArray(pendingRows) ? pendingRows[0] : pendingRows) as
-    | { job_id: string; document_type: string | null; document_country: string | null }
+    | { job_id: string; job_type: string | null; document_type: string | null; document_country: string | null }
     | undefined;
   const smileUserId = req.headers.get('User-ID');
+
+  // Layer 5: a facility Tier 2 re-verification (verifyFaceAtFacility,
+  // product smart_selfie_authentication) is a face-match against an
+  // ALREADY enrolled patient, not a new enrollment -- no document dedup,
+  // no Smile Secure duplicate-face check (those exist to catch a new
+  // enrollment reusing someone else's identity, not relevant when
+  // re-confirming an existing one), just complete the tier upgrade.
+  if (pending?.job_type === 'smart_selfie_authentication') {
+    if (result.status !== 'clear') {
+      await writeEnrollmentAudit({
+        huuid: result.huuid,
+        action: 'identity_verification_failed',
+        ipHash: SYSTEM_ACTOR_HASH,
+        userAgentHash: SYSTEM_ACTOR_HASH,
+        outcome: `tier2_face_match_${result.reason ?? result.status}`,
+      });
+      return NextResponse.json({ received: true });
+    }
+    await client.rpc('huuid_complete_tier2_upgrade', { p_huuid: result.huuid });
+    await client.rpc('huuid_smile_id_log_insert_result', {
+      p_huuid: result.huuid,
+      p_job_id: pending.job_id,
+      p_job_type: result.product,
+      p_smile_reference: smileUserId,
+      p_document_type: null,
+      p_document_country: null,
+      p_result_code: '0000',
+      p_result_text: result.message,
+      p_confidence_value: null,
+      p_duplicate_reference: null,
+      p_raw_response: payload,
+    });
+    await writeEnrollmentAudit({
+      huuid: result.huuid,
+      action: 'tier2_upgrade_completed',
+      ipHash: SYSTEM_ACTOR_HASH,
+      userAgentHash: SYSTEM_ACTOR_HASH,
+      outcome: 'smile_id_face_match',
+    });
+    await notifyPatientOfTier2Upgrade(client, result.huuid);
+    return NextResponse.json({ received: true });
+  }
 
   if (result.status !== 'clear') {
     await client.rpc('huuid_smile_id_log_insert_result', {
@@ -206,6 +249,22 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ received: true });
+}
+
+async function notifyPatientOfTier2Upgrade(client: ReturnType<typeof getServiceClient>, huuid: string): Promise<void> {
+  const { data: profileRows } = await client.rpc('huuid_get_patient_profile', { p_huuid: huuid, p_pii_key: getPiiKey() });
+  const profile = (Array.isArray(profileRows) ? profileRows[0] : profileRows) as { phone: string } | undefined;
+  if (!profile?.phone) return;
+  try {
+    await sendSMS(
+      profile.phone,
+      'HUUID IDENTITY VERIFIED\n\nYour Healthcare Identity has been verified in person.\n\nYour HUUID is now Tier 2 -- Facility Verified. You now have full access to the HUUID network.\n\nHUUID',
+      'normal'
+    );
+  } catch (err) {
+    const reason = err instanceof SMSDeliveryError ? `${err.hubtelReason} / ${err.africasTalkingReason}` : 'unknown';
+    console.error(JSON.stringify({ level: 'warn', action: 'smile_id_callback_tier2_sms_failed', message: reason }));
+  }
 }
 
 async function notifyRootAuthorityOfDuplicate(newHuuid: string, existingHuuid: string, reason: string): Promise<void> {

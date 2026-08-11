@@ -139,5 +139,6 @@ export async function POST(req: NextRequest) {
     pregnancyStatus: medical?.pregnancy_status ?? null,
     medicalProfileCompleted: medical?.medical_profile_completed ?? false,
     holdingFacilityNames,
+    verificationTier: patient?.verification_tier ?? 1,
   });
 }
