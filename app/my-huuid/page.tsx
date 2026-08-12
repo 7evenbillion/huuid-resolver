@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { patientSession } from '@/lib/patient-session';
 import { getServiceClient } from '@/lib/supabase-server';
 import { getPiiKey } from '@/lib/pii';
+import { getTierBadge } from '@/lib/identity-badge';
 import SignOutButton from '@/components/my-huuid/SignOutButton';
 
 export const dynamic = 'force-dynamic';
@@ -20,11 +21,10 @@ interface MedicalCompletionRow {
   medical_profile_completed: boolean;
 }
 
-const TIER_LABEL: Record<number, string> = {
-  1: 'Tier 1 — Self-Enrolled',
-  2: 'Tier 2 — Facility-Verified',
-  3: 'Tier 3 — Biometric-Verified',
-};
+interface IdentityStatusRow {
+  identity_verified: boolean;
+  identity_verified_facility_name: string | null;
+}
 
 /**
  * /my-huuid — Layer 2 home dashboard. patientSession (lib/patient-session.ts)
@@ -53,6 +53,20 @@ export default async function MyHuuidHomePage() {
     .maybeSingle();
   const medicalIncomplete = !(medicalData as MedicalCompletionRow | null)?.medical_profile_completed;
 
+  const { data: identityData } = await client
+    .rpc('huuid_get_identity_status', { p_huuid: session.huuid })
+    .maybeSingle();
+  const identity = identityData as IdentityStatusRow | null;
+  const tierBadge = getTierBadge(patient.verification_tier, identity?.identity_verified ?? false);
+  const tierDescription =
+    patient.verification_tier >= 3
+      ? 'Your identity is verified against the national health registry.'
+      : patient.verification_tier === 2
+        ? `Your identity has been verified in person${identity?.identity_verified_facility_name ? ` at ${identity.identity_verified_facility_name}` : ''}.`
+        : identity?.identity_verified
+          ? 'Your identity is document-verified. Visit a facility to complete full verification.'
+          : 'Your identity has basic protection. Visit a facility or verify your documents to strengthen it.';
+
   const huuidShort = `${session.huuid.slice(0, 18)}…${session.huuid.slice(-6)}`;
 
   return (
@@ -63,9 +77,12 @@ export default async function MyHuuidHomePage() {
           <div>
             <div className="myhuuid-name">{patient.full_name}</div>
             <div className="myhuuid-id" title={session.huuid}>{huuidShort}</div>
-            <span className="myhuuid-tier-badge">
-              🛡 {TIER_LABEL[patient.verification_tier] ?? `Tier ${patient.verification_tier}`}
+            <span className={`myhuuid-tier-badge tier-${tierBadge.color}`}>
+              {tierBadge.emoji} {tierBadge.label}
             </span>
+            <p style={{ fontSize: 12, color: 'var(--text-grey)', margin: '4px 0 0', maxWidth: 320 }}>
+              {tierDescription}
+            </p>
           </div>
         </div>
         <SignOutButton />

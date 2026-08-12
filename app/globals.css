@@ -2219,6 +2219,37 @@ form > .form-section-heading:first-child {
   color: var(--navy);
 }
 
+.myhuuid-settings-tier1verified-card {
+  background: #e8f1fb;
+  border: 1.5px solid #1a5fb3;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13.5px;
+  color: var(--navy);
+}
+
+/* ---------- Dedup Layer 7: tier badge (home dashboard) ---------- */
+
+.myhuuid-tier-badge.tier-grey {
+  color: var(--text-grey);
+  background: var(--grey-bg);
+}
+
+.myhuuid-tier-badge.tier-blue {
+  color: #1a5fb3;
+  background: #e8f1fb;
+}
+
+.myhuuid-tier-badge.tier-green {
+  color: #1a8f4c;
+  background: #e3f5ea;
+}
+
+.myhuuid-tier-badge.tier-gold {
+  color: #8a6a00;
+  background: #fdf3d4;
+}
+
 .myhuuid-delete-section {
   border-color: #b3261e;
   background: #fdf3f2;

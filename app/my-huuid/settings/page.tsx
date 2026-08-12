@@ -4,14 +4,17 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { isObviousPin, reencryptPrivateKeyWithNewPin, decryptAndSignChallenge } from '@/lib/client/keypair';
+import { identityMethodLabel } from '@/lib/identity-badge';
 
 interface SecurityData {
   huuid: string;
+  verificationTier: number;
   identityVerified: boolean;
   identityVerifiedMethod: string | null;
   identityVerifiedAt: string | null;
   identityDocumentType: string | null;
   identityDocumentCountry: string | null;
+  identityVerifiedFacilityName: string | null;
 }
 
 export default function MyHuuidSettingsPage() {
@@ -200,6 +203,62 @@ export default function MyHuuidSettingsPage() {
         </Link>
         <h1 className="admin-title" style={{ margin: '16px 0 24px' }}>Security Settings</h1>
 
+        {/* Section 0 — Your Identity Status (dedup Layer 7) */}
+        <div className="myhuuid-settings-section">
+          <h2 className="medical-section-title">YOUR IDENTITY STATUS</h2>
+          {loading ? (
+            <p className="form-helper">Loading…</p>
+          ) : security?.verificationTier === 2 ? (
+            <div className="myhuuid-settings-verified-card">
+              <p style={{ fontWeight: 700, margin: '0 0 8px' }}>✓ Fully Verified — Tier 2</p>
+              <p style={{ margin: '0 0 4px' }}>
+                Verified at: {security.identityVerifiedFacilityName ?? 'a connected facility'}
+              </p>
+              <p style={{ margin: 0 }}>
+                Date: {security.identityVerifiedAt ? new Date(security.identityVerifiedAt).toLocaleDateString() : '—'}
+              </p>
+            </div>
+          ) : security?.identityVerified ? (
+            <div className="myhuuid-settings-tier1verified-card">
+              <p style={{ fontWeight: 700, margin: '0 0 8px' }}>✓ Identity Verified</p>
+              <p style={{ margin: '0 0 4px' }}>Verified by: {identityMethodLabel(security.identityVerifiedMethod)}</p>
+              <p style={{ margin: '0 0 4px' }}>
+                Date: {security.identityVerifiedAt ? new Date(security.identityVerifiedAt).toLocaleDateString() : '—'}
+              </p>
+              <p style={{ margin: '0 0 12px' }}>
+                Document: {security.identityDocumentType ?? '—'} ({security.identityDocumentCountry ?? '—'})
+              </p>
+              <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+                Visit a facility to complete full verification.
+              </p>
+              <Link href="/my-huuid/verify-identity" style={{ color: 'var(--teal)', fontWeight: 600 }}>
+                Update Document →
+              </Link>
+            </div>
+          ) : (
+            <div className="myhuuid-settings-unverified-card">
+              <p style={{ fontWeight: 700, margin: '0 0 8px' }}>⚠️ Your identity is not verified.</p>
+              <p style={{ margin: '0 0 8px' }}>
+                Your Healthcare Identity has basic protection only. Unverified accounts have limited protection
+                against duplicate enrollment.
+              </p>
+              <p style={{ margin: '0 0 4px', fontWeight: 600 }}>To verify your identity:</p>
+              <p style={{ margin: '0 0 12px' }}>
+                Visit any HUUID-connected facility with your government ID document. Staff will verify you in
+                person.
+              </p>
+              <Link
+                href="/my-huuid/verify-identity"
+                className="btn btn-teal"
+                style={{ display: 'inline-block', marginBottom: 8 }}
+              >
+                Verify My Identity →
+              </Link>
+              <p style={{ margin: 0, fontStyle: 'italic', fontSize: 13 }}>[Biometric self-service coming soon]</p>
+            </div>
+          )}
+        </div>
+
         {/* Section 1 — Change PIN */}
         <div className="myhuuid-settings-section">
           <h2 className="medical-section-title">Change Your Security PIN</h2>
@@ -261,35 +320,6 @@ export default function MyHuuidSettingsPage() {
           <p className="myhuuid-settings-note">
             Manage devices that can access your Healthcare Identity without entering your PIN each time.
           </p>
-        </div>
-
-        {/* Section 3 — Identity Verification */}
-        <div className="myhuuid-settings-section">
-          <h2 className="medical-section-title">Identity Verification</h2>
-          {loading ? (
-            <p className="form-helper">Loading…</p>
-          ) : security?.identityVerified ? (
-            <div className="myhuuid-settings-verified-card">
-              <p style={{ fontWeight: 700, margin: '0 0 8px' }}>✓ Identity Verified</p>
-              <p style={{ margin: '0 0 4px' }}>Verified by: {security.identityVerifiedMethod}</p>
-              <p style={{ margin: '0 0 4px' }}>
-                Date: {security.identityVerifiedAt ? new Date(security.identityVerifiedAt).toLocaleDateString() : '—'}
-              </p>
-              <p style={{ margin: 0 }}>
-                Document: {security.identityDocumentType} ({security.identityDocumentCountry})
-              </p>
-            </div>
-          ) : (
-            <div className="myhuuid-settings-unverified-card">
-              <p style={{ fontWeight: 700, margin: '0 0 8px' }}>⚠️ Your identity is not verified.</p>
-              <p style={{ margin: '0 0 8px' }}>Your Healthcare Identity has basic protection only.</p>
-              <p style={{ margin: '0 0 8px' }}>
-                To fully protect against duplicate accounts visit any connected healthcare facility with
-                your government ID document. Staff will verify you in person.
-              </p>
-              <p style={{ margin: 0, fontStyle: 'italic' }}>[Biometric verification coming soon for self-service]</p>
-            </div>
-          )}
         </div>
 
         {/* Section 4 — Delete My Account */}

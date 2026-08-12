@@ -37,7 +37,10 @@ export async function POST(req: NextRequest) {
 
   const client = getServiceClient();
 
-  const { error: upgradeError } = await client.rpc('huuid_complete_tier2_upgrade', { p_huuid: huuid });
+  const { error: upgradeError } = await client.rpc('huuid_complete_tier2_upgrade', {
+    p_huuid: huuid,
+    p_facility_did: session.facilityDid,
+  });
   if (upgradeError) {
     console.error(
       JSON.stringify({ level: 'error', action: 'tier2_staff_verified_upgrade_failed', message: upgradeError.message })
